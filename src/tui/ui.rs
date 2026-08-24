@@ -4,14 +4,13 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::sonar::models::Channel;
-use crate::tui::app::{Mode, RouteTarget, TuiApp, TuiTab};
+use crate::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 
 const HELP_TEXT: &str = "\
 Global
-  Tab          switch Routing / Devices
+  Tab          focus Routing / Devices
   q            quit
   ?            toggle this help
 
@@ -36,18 +35,12 @@ Device picker
 
 /// Draw the whole interface.
 pub fn draw(frame: &mut Frame, app: &TuiApp) {
-    let areas = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(3),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
-    draw_tabs(frame, app, areas[0]);
-    match app.tab {
-        TuiTab::Routing => draw_routing(frame, app, areas[1]),
-        TuiTab::Devices => draw_devices(frame, app, areas[1]),
-    }
-    draw_status(frame, app, areas[2]);
+    let areas = Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(frame.area());
+    let panels = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(areas[0]);
+    draw_routing(frame, app, panels[0]);
+    draw_devices(frame, app, panels[1]);
+    draw_status(frame, app, areas[1]);
 
     match app.mode {
         Mode::Picker => draw_picker(frame, app, frame.area()),
@@ -56,96 +49,78 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
     }
 }
 
-fn draw_tabs(frame: &mut Frame, app: &TuiApp, area: Rect) {
-    let selected = match app.tab {
-        TuiTab::Routing => 0,
-        TuiTab::Devices => 1,
-    };
-    frame.render_widget(
-        Tabs::new([" Routing ", " Devices "])
-            .select(selected)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .divider("│"),
-        area,
-    );
-}
-
 fn draw_routing(frame: &mut Frame, app: &TuiApp, area: Rect) {
-    let sections = Layout::vertical([Constraint::Min(7), Constraint::Length(3)]).split(area);
-    draw_outputs(frame, app, sections[0]);
-    draw_input(frame, app, sections[1]);
-}
-
-fn draw_outputs(frame: &mut Frame, app: &TuiApp, area: Rect) {
     let width = area.width.saturating_sub(4) as usize;
-    let targets = &RouteTarget::ALL[..5];
-    let label_width = targets
+    let label_width = RouteTarget::ALL
         .iter()
         .map(|target| target.label().len())
         .max()
         .unwrap_or(10)
         + 2;
 
-    let items: Vec<ListItem> = targets
-        .iter()
-        .map(|target| {
-            let device = match target {
-                RouteTarget::AllOutputs => app.all_outputs_device(),
-                RouteTarget::Channel(channel) => app.device_for(*channel),
-            };
-            let name = format!("{:<label_width$}", target.label());
-            let line = Line::from(vec![
-                Span::styled(name, Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(truncate(&device, width.saturating_sub(label_width))),
-            ]);
-            ListItem::new(line)
-        })
-        .collect();
+    let mut items = vec![ListItem::new(Line::styled(
+        "Output",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    ))];
+    items.extend(RouteTarget::ALL[..5].iter().map(|target| {
+        let device = match target {
+            RouteTarget::AllOutputs => app.all_outputs_device(),
+            RouteTarget::Channel(channel) => app.device_for(*channel),
+        };
+        let name = format!("{:<label_width$}", target.label());
+        let line = Line::from(vec![
+            Span::styled(name, Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(truncate(&device, width.saturating_sub(label_width))),
+        ]);
+        ListItem::new(line)
+    }));
+    items.push(ListItem::new(Line::styled(
+        "Input",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+    let microphone = RouteTarget::ALL[5];
+    items.push(ListItem::new(Line::from(vec![
+        Span::styled(
+            format!("{:<label_width$}", microphone.label()),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(truncate(
+            &app.device_for(crate::sonar::models::Channel::Microphone),
+            width.saturating_sub(label_width),
+        )),
+    ])));
 
     let mut state = ListState::default();
-    if app.selected < targets.len() {
-        state.select(Some(app.selected));
+    if app.focus == FocusPane::Routing {
+        state.select(Some(if app.selected < 5 {
+            app.selected + 1
+        } else {
+            7
+        }));
     }
 
     let list = List::new(items)
         .block(
             Block::bordered()
-                .title(" Output ")
+                .title(" Routing ")
                 .title_bottom(Line::from(
-                    " ↑↓ select   Enter change   Tab devices   ? help   q quit ",
+                    " Tab focus   ↑↓ select   Enter change   ? help   q quit ",
                 ))
+                .border_style(if app.focus == FocusPane::Routing {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                })
                 .title_alignment(Alignment::Left),
         )
         .highlight_symbol("> ")
         .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
 
     frame.render_stateful_widget(list, area, &mut state);
-}
-
-fn draw_input(frame: &mut Frame, app: &TuiApp, area: Rect) {
-    let item = ListItem::new(Line::from(vec![
-        Span::styled(
-            format!("{:<14}", Channel::Microphone.display_name()),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(app.device_for(Channel::Microphone)),
-    ]));
-    let mut state = ListState::default();
-    if app.selected == 5 {
-        state.select(Some(0));
-    }
-    frame.render_stateful_widget(
-        List::new([item])
-            .block(Block::bordered().title(" Input "))
-            .highlight_symbol("> ")
-            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan)),
-        area,
-        &mut state,
-    );
 }
 
 fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
@@ -168,7 +143,7 @@ fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
         })
         .collect();
     let mut state = ListState::default();
-    if !items.is_empty() {
+    if !items.is_empty() && app.focus == FocusPane::Devices {
         state.select(Some(app.device_selected.min(items.len() - 1)));
     }
     frame.render_stateful_widget(
@@ -176,9 +151,12 @@ fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
             .block(
                 Block::bordered()
                     .title(" Picker visibility ")
-                    .title_bottom(Line::from(
-                        " Space/Enter toggle   Tab routing   r refresh   ? help   q quit ",
-                    )),
+                    .title_bottom(Line::from(" Tab focus   Space/Enter toggle   r refresh "))
+                    .border_style(if app.focus == FocusPane::Devices {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default()
+                    }),
             )
             .highlight_symbol("> ")
             .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan)),

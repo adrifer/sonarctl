@@ -14,7 +14,7 @@ pub const OUTPUT_CHANNELS: [Channel; 4] =
     [Channel::Game, Channel::Chat, Channel::Media, Channel::Aux];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TuiTab {
+pub enum FocusPane {
     Routing,
     Devices,
 }
@@ -176,7 +176,7 @@ pub struct TuiApp {
     app: App,
     pub mode: Mode,
     help_return_mode: Mode,
-    pub tab: TuiTab,
+    pub focus: FocusPane,
     pub selected: usize,
     pub device_selected: usize,
     pub snapshot: Option<Snapshot>,
@@ -197,7 +197,7 @@ impl TuiApp {
             app,
             mode: Mode::Channels,
             help_return_mode: Mode::Channels,
-            tab: TuiTab::Routing,
+            focus: FocusPane::Routing,
             selected: 0,
             device_selected: 0,
             snapshot: None,
@@ -303,16 +303,16 @@ impl TuiApp {
 
     async fn handle_main_key(&mut self, key: KeyEvent) {
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
-            self.tab = match self.tab {
-                TuiTab::Routing => TuiTab::Devices,
-                TuiTab::Devices => TuiTab::Routing,
+            self.focus = match self.focus {
+                FocusPane::Routing => FocusPane::Devices,
+                FocusPane::Devices => FocusPane::Routing,
             };
             return;
         }
 
-        match self.tab {
-            TuiTab::Routing => self.handle_routing_key(key).await,
-            TuiTab::Devices => self.handle_devices_key(key).await,
+        match self.focus {
+            FocusPane::Routing => self.handle_routing_key(key).await,
+            FocusPane::Devices => self.handle_devices_key(key).await,
         }
     }
 

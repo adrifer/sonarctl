@@ -5,7 +5,7 @@ mod common;
 use sonarctl::config::Config;
 use sonarctl::sonar::backend::SonarBackend;
 use sonarctl::sonar::models::Channel;
-use sonarctl::tui::app::{Mode, RouteTarget, TuiApp, TuiTab};
+use sonarctl::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 use sonarctl::tui::event::{Key, KeyCode, KeyModifiers};
 
 use common::{device_id, mock_app};
@@ -232,14 +232,14 @@ async fn all_output_failure_rolls_back_previous_channels() {
 async fn devices_tab_toggles_picker_visibility() {
     let (mut tui, _) = started().await;
     tui.handle_key(key(KeyCode::Tab)).await;
-    assert_eq!(tui.tab, TuiTab::Devices);
+    assert_eq!(tui.focus, FocusPane::Devices);
 
     let hidden_id = tui.devices()[0].id.clone();
     tui.handle_key(key(KeyCode::Char(' '))).await;
     assert!(!tui.device_is_visible(&hidden_id));
 
     tui.handle_key(key(KeyCode::Tab)).await;
-    assert_eq!(tui.tab, TuiTab::Routing);
+    assert_eq!(tui.focus, FocusPane::Routing);
     tui.handle_key(key(KeyCode::Enter)).await;
     assert!(
         tui.picker

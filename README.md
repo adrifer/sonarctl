@@ -144,25 +144,25 @@ otherwise, so aliases survive most hardware re-enumerations.
 ## TUI
 
 ```text
- Routing │ Devices
-┌ Output ────────────────────────────────────────────────┐
-│ > All Outputs  Mixed                                   │
-│   Game         Arctis Nova Pro Wireless                │
-│   Chat         Arctis Nova Pro Wireless                │
-│   Media        LG TV                                   │
-│   Aux          LG TV                                   │
-└────────────────────────────────────────────────────────┘
-┌ Input ─────────────────────────────────────────────────┐
-│   Microphone   Shure MV7                               │
-└────────────────────────────────────────────────────────┘
+┌ Routing ───────────────────────┐┌ Picker visibility ─────────────┐
+│ Output                         ││ > [x] Playback  Headphones      │
+│ > All Outputs  Mixed           ││   [x] Playback  Speakers       │
+│   Game         Headphones      ││   [ ] Playback  HDMI Display   │
+│   Chat         Headphones      ││   [x] Capture   Shure MV7      │
+│   Media        Speakers        ││                                 │
+│   Aux          Speakers        ││                                 │
+│ Input                          ││                                 │
+│   Microphone   Shure MV7       ││                                 │
+└────────────────────────────────┘└─────────────────────────────────┘
 ```
 
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
-Input section.
+Input section, directly below the outputs. The Devices subpanel remains visible alongside routing;
+`Tab` changes keyboard focus without switching screens.
 
 | Key | Routing | Devices | Device picker |
 | --- | --- | --- | --- |
-| `Tab` | switch to Devices | switch to Routing | — |
+| `Tab` | focus Devices | focus Routing | — |
 | `j` / `↓` | next route | next device | next device |
 | `k` / `↑` | previous route | previous device | previous device |
 | `g` / `G` | first / last route | first / last device | first / last device |
@@ -174,7 +174,7 @@ Input section.
 | `?` | help | help | help |
 | `q` | quit | quit | cancel |
 
-The Devices tab controls which physical devices appear in route pickers. Toggled visibility is
+The Devices subpanel controls which physical devices appear in route pickers. Toggled visibility is
 stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable
 hardware in Windows.
 
