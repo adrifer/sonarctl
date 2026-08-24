@@ -46,7 +46,7 @@ install: test build
 # (Re)create the WSL wrapper that launches the Windows executable
 _wrapper:
     mkdir -p "$(dirname "{{wrapper}}")"
-    tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT; printf '#!/usr/bin/env bash\nexec "%s/sonarctl.exe" "$@"\n' "{{win_install_dir}}" > "$tmp"; if ! cmp -s "$tmp" "{{wrapper}}"; then install -m 0755 "$tmp" "{{wrapper}}"; fi
+    tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT; printf '#!/usr/bin/env bash\nexport TERM="${TERM:-xterm-256color}"\nif [[ ":${WSLENV:-}:" != *":TERM:"* && ":${WSLENV:-}:" != *":TERM/"* ]]; then\n  export WSLENV="${WSLENV:+${WSLENV%%:}:}TERM"\nfi\nexec "%s/sonarctl.exe" "$@"\n' "{{win_install_dir}}" > "$tmp"; if ! cmp -s "$tmp" "{{wrapper}}"; then install -m 0755 "$tmp" "{{wrapper}}"; fi
 
 # Build, install and run the Windows executable with the given arguments
 dev *ARGS: build

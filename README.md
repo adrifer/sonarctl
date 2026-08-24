@@ -305,11 +305,16 @@ code:
 
 ```bash
 #!/usr/bin/env bash
+export TERM="${TERM:-xterm-256color}"
+if [[ ":${WSLENV:-}:" != *":TERM:"* && ":${WSLENV:-}:" != *":TERM/"* ]]; then
+  export WSLENV="${WSLENV:+${WSLENV%:}:}TERM"
+fi
 exec "/mnt/c/Tools/sonarctl/sonarctl.exe" "$@"
 ```
 
 > Windows executables do not need to be imported into the WSL `PATH`. The wrapper handles
-> invocation explicitly.
+> invocation explicitly. It also forwards `TERM` through WSL interop so Crossterm uses ANSI
+> alternate-screen sequences and restores the shell contents when the TUI exits.
 
 Because the binary is a native Windows process, `localhost` always means Windows and no WSL
 networking, NAT or host-IP discovery logic is needed. The TUI runs fine in Windows Terminal from
