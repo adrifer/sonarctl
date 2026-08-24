@@ -408,10 +408,12 @@ impl TuiApp {
             }
             KeyCode::Char('?') => self.open_help(Mode::Channels),
             KeyCode::Enter => self.open_picker().await,
-            KeyCode::Char(']') | KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Right => {
-                self.adjust_mixer(5.0).await
-            }
-            KeyCode::Char('[') | KeyCode::Char('-') | KeyCode::Left => {
+            KeyCode::Char(']')
+            | KeyCode::Char('l')
+            | KeyCode::Char('+')
+            | KeyCode::Char('=')
+            | KeyCode::Right => self.adjust_mixer(5.0).await,
+            KeyCode::Char('[') | KeyCode::Char('h') | KeyCode::Char('-') | KeyCode::Left => {
                 self.adjust_mixer(-5.0).await
             }
             KeyCode::Char('m') => self.toggle_mixer().await,
@@ -428,10 +430,12 @@ impl TuiApp {
             }
             KeyCode::Char('?') => self.open_help(Mode::Channels),
             KeyCode::Enter => self.open_picker().await,
-            KeyCode::Char(']') | KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Right => {
-                self.adjust_mixer(5.0).await
-            }
-            KeyCode::Char('[') | KeyCode::Char('-') | KeyCode::Left => {
+            KeyCode::Char(']')
+            | KeyCode::Char('l')
+            | KeyCode::Char('+')
+            | KeyCode::Char('=')
+            | KeyCode::Right => self.adjust_mixer(5.0).await,
+            KeyCode::Char('[') | KeyCode::Char('h') | KeyCode::Char('-') | KeyCode::Left => {
                 self.adjust_mixer(-5.0).await
             }
             KeyCode::Char('m') => self.toggle_mixer().await,

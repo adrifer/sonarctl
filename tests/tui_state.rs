@@ -47,7 +47,7 @@ async fn mixer_api_failure_does_not_disable_routing_panes() {
 
 #[tokio::test]
 async fn devices_render_in_separate_output_and_input_sections() {
-    let (tui, _) = started().await;
+    let (mut tui, _) = started().await;
     let mut terminal = Terminal::new(TestBackend::new(120, 30)).expect("terminal");
     terminal
         .draw(|frame| ui::draw(frame, &tui))
@@ -65,6 +65,24 @@ async fn devices_render_in_separate_output_and_input_sections() {
     assert!(output < input);
     assert!(rendered.contains("Arctis Nova Pro Wireless"));
     assert!(rendered.contains("Shure MV7"));
+    assert!(rendered.contains("Channel details"));
+    assert!(rendered.contains("Channel  Master"));
+    assert!(rendered.contains("Volume"));
+    assert!(rendered.contains("80%"));
+    assert!(rendered.contains("Muted    No"));
+
+    tui.handle_key(key(KeyCode::Char('m'))).await;
+    terminal
+        .draw(|frame| ui::draw(frame, &tui))
+        .expect("redraw muted dashboard");
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("Muted    Yes"));
 }
 
 #[tokio::test]
@@ -121,7 +139,7 @@ async fn mixer_tracks_route_selection_and_changes_volume_and_mute() {
 
     tui.handle_key(key(KeyCode::Char('j'))).await;
     assert_eq!(tui.mixer_channel, MixerChannel::Game);
-    tui.handle_key(key(KeyCode::Char('['))).await;
+    tui.handle_key(key(KeyCode::Char('h'))).await;
     assert_eq!(tui.focus, FocusPane::Output);
     assert_eq!(tui.mixer_state().unwrap().percent(), 95.0);
     tui.handle_key(key(KeyCode::Char('m'))).await;
@@ -137,7 +155,7 @@ async fn mixer_tracks_route_selection_and_changes_volume_and_mute() {
 
     tui.handle_key(key(KeyCode::Char('2'))).await;
     assert_eq!(tui.mixer_channel, MixerChannel::Microphone);
-    tui.handle_key(key(KeyCode::Char(']'))).await;
+    tui.handle_key(key(KeyCode::Char('l'))).await;
     assert_eq!(tui.mixer_state().unwrap().percent(), 65.0);
 }
 

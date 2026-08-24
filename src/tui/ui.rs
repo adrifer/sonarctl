@@ -4,7 +4,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::sonar::models::DeviceRole;
 use crate::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
@@ -22,13 +22,13 @@ Output routing
   k / Up       previous route
   g / G        first / last route
   Enter        choose device
-  [ / ]        decrease / increase selected channel volume
+  h / l, [ / ] decrease / increase selected channel volume
   m            toggle selected channel mute
   r            refresh
 
 Input routing
   Enter        choose device
-  [ / ]        decrease / increase microphone volume
+  h / l, [ / ] decrease / increase microphone volume
   m            toggle microphone mute
   r            refresh
 
@@ -65,7 +65,7 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
 }
 
 fn draw_mixer(frame: &mut Frame, app: &TuiApp, area: Rect) {
-    let block = Block::bordered().title(format!(" {} mixer ", app.mixer_channel.display_name()));
+    let block = Block::bordered().title(" Channel details ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -78,23 +78,46 @@ fn draw_mixer(frame: &mut Frame, app: &TuiApp, area: Rect) {
         frame.render_widget(Paragraph::new(message), inner);
         return;
     };
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
-    let status = if state.muted { "MUTED" } else { "unmuted" };
-    frame.render_widget(
-        Paragraph::new(format!("{:.0}%  {status}", state.percent())),
-        rows[0],
-    );
-    frame.render_widget(
-        Gauge::default()
-            .ratio(state.volume)
-            .gauge_style(if state.muted {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                Style::default().fg(Color::Cyan)
-            })
-            .label(""),
-        rows[1],
-    );
+    let percent = format!("{:.0}%", state.percent());
+    let label_width = 9;
+    let bar_width = usize::from(inner.width)
+        .saturating_sub(label_width + percent.chars().count() + 2)
+        .min(24);
+    let filled = ((state.volume * bar_width as f64).round() as usize).min(bar_width);
+    let muted_style = if state.muted {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(
+                format!("{:<label_width$}", "Channel"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(app.mixer_channel.display_name()),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("{:<label_width$}", "Volume"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("█".repeat(filled), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "░".repeat(bar_width.saturating_sub(filled)),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::raw(format!("  {percent}")),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("{:<label_width$}", "Muted"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(if state.muted { "Yes" } else { "No" }, muted_style),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_output_routing(frame: &mut Frame, app: &TuiApp, area: Rect) {
@@ -239,8 +262,8 @@ fn draw_footer(frame: &mut Frame, app: &TuiApp, area: Rect) {
     };
     let text = if app.status.text.is_empty() {
         let action = match app.focus {
-            FocusPane::Output => "↑↓ select  Enter route  [/] volume  m mute",
-            FocusPane::Input => "Enter route  [/] volume  m mute",
+            FocusPane::Output => "↑↓ select  Enter route  h/l volume  m mute",
+            FocusPane::Input => "Enter route  h/l volume  m mute",
             FocusPane::Devices => "↑↓ select  Space/Enter toggle",
         };
         format!(" [1] Output  [2] Input  [3] Devices  │  {action}  │  ? help  q quit")

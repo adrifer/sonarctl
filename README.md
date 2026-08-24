@@ -180,24 +180,25 @@ otherwise, so aliases survive most hardware re-enumerations.
 ## TUI
 
 ```text
-┌ [1] Output routing ────────────┐┌ Master mixer ──────────────────┐
-│ > All Outputs  Mixed           ││ 80%  unmuted                    │
-│   Game         Headphones      ││ ████████████████░░░░           │
-│   Chat         Headphones      │├ [3] Devices ───────────────────┤
-│   Media        Speakers        ││ ── OUTPUT DEVICES ──           │
-│   Aux          Speakers        ││ > [x] Headphones               │
-├ [2] Input routing ─────────────┤│   [x] Speakers                 │
-│   Microphone   Shure MV7       ││ ── INPUT DEVICES ──            │
+┌ [1] Output routing ────────────┐┌ Channel details ───────────────┐
+│ > All Outputs  Mixed           ││ Channel  Master                 │
+│   Game         Headphones      ││ Volume   ████████████░░░  80%  │
+│   Chat         Headphones      ││ Muted    No                     │
+│   Media        Speakers        │├ [3] Devices ───────────────────┤
+│   Aux          Speakers        ││ ── OUTPUT DEVICES ──           │
+├ [2] Input routing ─────────────┤│ > [x] Headphones               │
+│   Microphone   Shure MV7       ││   [x] Speakers                 │
+│                                ││ ── INPUT DEVICES ──            │
 │                                ││   [x] Shure MV7                 │
 └────────────────────────────────┘└─────────────────────────────────┘
- [1] Output  [2] Input  [3] Devices  │  [/] volume  m mute  │  ? help  q quit
+ [1] Output  [2] Input  [3] Devices  │  h/l volume  m mute  │  ? help  q quit
 ```
 
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
-numbered Input pane. The Mixer pane follows the selected output route (with `All Outputs` mapped to
-Master) or Microphone when Input is selected. It does not need focus: press `[` or `]` while a route
-is selected to decrease or increase its volume by 5%, and `m` to toggle mute. Press `1`, `2`, or `3`
-to focus a numbered pane directly; `Tab` cycles focus.
+numbered Input pane. Channel details follow the selected output route (with `All Outputs` mapped to
+Master) or Microphone when Input is selected. The panel does not need focus: press `h`/`l` or
+`[`/`]` while a route is selected to decrease or increase its volume by 5%, and `m` to toggle mute.
+Press `1`, `2`, or `3` to focus a numbered pane directly; `Tab` cycles focus.
 
 | Key | Output/Input panes | Devices pane | Device picker |
 | --- | --- | --- | --- |
@@ -206,8 +207,8 @@ to focus a numbered pane directly; `Tab` cycles focus.
 | `j` / `↓`, `k` / `↑` | select route | select device | select device |
 | `g` / `G` | first / last route | first / last device | first / last device |
 | `Enter` | open picker | toggle picker visibility | apply |
-| `]` | increase selected volume 5% | — | — |
-| `[` | decrease selected volume 5% | — | — |
+| `l` / `]` | increase selected volume 5% | — | — |
+| `h` / `[` | decrease selected volume 5% | — | — |
 | `m` | toggle selected mute | — | — |
 | `Space` | — | toggle picker visibility | — |
 | `/` | — | — | filter |
