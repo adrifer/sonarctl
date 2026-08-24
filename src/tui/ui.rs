@@ -10,8 +10,7 @@ use crate::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 
 const HELP_TEXT: &str = "\
 Global
-  1 / 2 / 3 / 4
-               focus Output / Input / Devices / Mixer
+  1 / 2 / 3    focus Output / Input / Devices
   Tab          focus next pane
   Shift+Tab    focus previous pane
   q            quit
@@ -22,21 +21,20 @@ Output routing
   k / Up       previous route
   g / G        first / last route
   Enter        choose device
+  [ / ]        decrease / increase selected channel volume
+  m            toggle selected channel mute
   r            refresh
 
 Input routing
   Enter        choose device
+  [ / ]        decrease / increase microphone volume
+  m            toggle microphone mute
   r            refresh
 
 Devices
   j / Down     next device
   k / Up       previous device
   Space/Enter  show or hide in pickers
-
-Mixer
-  + / ] / Right  increase volume by 5%
-  - / [ / Left   decrease volume by 5%
-  m               toggle mute
 
 Device picker
   j / Down     next device
@@ -51,11 +49,11 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
     let panels = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(areas[0]);
     let routing = Layout::vertical([Constraint::Length(7), Constraint::Min(3)]).split(panels[0]);
-    let sidebar = Layout::vertical([Constraint::Min(3), Constraint::Length(6)]).split(panels[1]);
+    let sidebar = Layout::vertical([Constraint::Length(6), Constraint::Min(3)]).split(panels[1]);
     draw_output_routing(frame, app, routing[0]);
     draw_input_routing(frame, app, routing[1]);
-    draw_devices(frame, app, sidebar[0]);
-    draw_mixer(frame, app, sidebar[1]);
+    draw_mixer(frame, app, sidebar[0]);
+    draw_devices(frame, app, sidebar[1]);
     draw_footer(frame, app, areas[1]);
 
     match app.mode {
@@ -66,14 +64,7 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
 }
 
 fn draw_mixer(frame: &mut Frame, app: &TuiApp, area: Rect) {
-    let border_style = if app.focus == FocusPane::Mixer {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-    let block = Block::bordered()
-        .title(format!(" [4] {} mixer ", app.mixer_channel.display_name()))
-        .border_style(border_style);
+    let block = Block::bordered().title(format!(" {} mixer ", app.mixer_channel.display_name()));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -227,12 +218,11 @@ fn draw_footer(frame: &mut Frame, app: &TuiApp, area: Rect) {
     };
     let text = if app.status.text.is_empty() {
         let action = match app.focus {
-            FocusPane::Output => "↑↓ select  Enter change",
-            FocusPane::Input => "Enter change",
+            FocusPane::Output => "↑↓ select  Enter route  [/] volume  m mute",
+            FocusPane::Input => "Enter route  [/] volume  m mute",
             FocusPane::Devices => "↑↓ select  Space/Enter toggle",
-            FocusPane::Mixer => "←/→ or -/+ volume  m mute",
         };
-        format!(" [1] Output  [2] Input  [3] Devices  [4] Mixer  │  {action}  │  ? help  q quit")
+        format!(" [1] Output  [2] Input  [3] Devices  │  {action}  │  ? help  q quit")
     } else {
         format!(" {}", app.status.text)
     };

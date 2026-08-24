@@ -83,11 +83,9 @@ async fn focuses_numbered_panes_directly_and_with_tab() {
     assert_eq!(tui.selected_target(), None);
 
     tui.handle_key(key(KeyCode::Tab)).await;
-    assert_eq!(tui.focus, FocusPane::Mixer);
-    tui.handle_key(key(KeyCode::Tab)).await;
     assert_eq!(tui.focus, FocusPane::Output);
     tui.handle_key(key(KeyCode::BackTab)).await;
-    assert_eq!(tui.focus, FocusPane::Mixer);
+    assert_eq!(tui.focus, FocusPane::Devices);
 }
 
 #[tokio::test]
@@ -98,10 +96,8 @@ async fn mixer_tracks_route_selection_and_changes_volume_and_mute() {
 
     tui.handle_key(key(KeyCode::Char('j'))).await;
     assert_eq!(tui.mixer_channel, MixerChannel::Game);
-    tui.handle_key(key(KeyCode::Char('4'))).await;
-    assert_eq!(tui.focus, FocusPane::Mixer);
-
-    tui.handle_key(key(KeyCode::Char('-'))).await;
+    tui.handle_key(key(KeyCode::Char('['))).await;
+    assert_eq!(tui.focus, FocusPane::Output);
     assert_eq!(tui.mixer_state().unwrap().percent(), 95.0);
     tui.handle_key(key(KeyCode::Char('m'))).await;
     assert!(tui.mixer_state().unwrap().muted);
@@ -116,6 +112,8 @@ async fn mixer_tracks_route_selection_and_changes_volume_and_mute() {
 
     tui.handle_key(key(KeyCode::Char('2'))).await;
     assert_eq!(tui.mixer_channel, MixerChannel::Microphone);
+    tui.handle_key(key(KeyCode::Char(']'))).await;
+    assert_eq!(tui.mixer_state().unwrap().percent(), 65.0);
 }
 
 #[tokio::test]

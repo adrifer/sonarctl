@@ -180,38 +180,39 @@ otherwise, so aliases survive most hardware re-enumerations.
 ## TUI
 
 ```text
-┌ [1] Output routing ────────────┐┌ [3] Devices ───────────────────┐
-│ > All Outputs  Mixed           ││ > [x] Playback  Headphones     │
-│   Game         Headphones      ││   [x] Playback  Speakers       │
-│   Chat         Headphones      ││   [ ] Playback  HDMI Display   │
-│   Media        Speakers        ││   [x] Capture   Shure MV7      │
-│   Aux          Speakers        │├ [4] Master mixer ──────────────┤
-├ [2] Input routing ─────────────┤│ 80%  unmuted                    │
-│   Microphone   Shure MV7       ││ ████████████████░░░░           │
+┌ [1] Output routing ────────────┐┌ Master mixer ──────────────────┐
+│ > All Outputs  Mixed           ││ 80%  unmuted                    │
+│   Game         Headphones      ││ ████████████████░░░░           │
+│   Chat         Headphones      │├ [3] Devices ───────────────────┤
+│   Media        Speakers        ││ > [x] Playback  Headphones     │
+│   Aux          Speakers        ││   [x] Playback  Speakers       │
+├ [2] Input routing ─────────────┤│   [ ] Playback  HDMI Display   │
+│   Microphone   Shure MV7       ││   [x] Capture   Shure MV7      │
 └────────────────────────────────┘└─────────────────────────────────┘
- [1] Output  [2] Input  [3] Devices  [4] Mixer  │  ? help  q quit
+ [1] Output  [2] Input  [3] Devices  │  [/] volume  m mute  │  ? help  q quit
 ```
 
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
 numbered Input pane. The Mixer pane follows the selected output route (with `All Outputs` mapped to
-Master) or Microphone when Input is selected. Press `1`, `2`, `3`, or `4` to focus a pane directly;
-`Tab` cycles focus.
+Master) or Microphone when Input is selected. It does not need focus: press `[` or `]` while a route
+is selected to decrease or increase its volume by 5%, and `m` to toggle mute. Press `1`, `2`, or `3`
+to focus a numbered pane directly; `Tab` cycles focus.
 
-| Key | Output/Input panes | Devices pane | Mixer pane | Device picker |
-| --- | --- | --- | --- | --- |
-| `1` / `2` / `3` / `4` | focus numbered pane | focus numbered pane | focus numbered pane | — |
-| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | cycle pane focus | — |
-| `j` / `↓`, `k` / `↑` | select route | select device | — | select device |
-| `g` / `G` | first / last route | first / last device | — | first / last device |
-| `Enter` | open picker | toggle picker visibility | — | apply |
-| `+` / `]` / `→` | — | — | increase volume 5% | — |
-| `-` / `[` / `←` | — | — | decrease volume 5% | — |
-| `m` | — | — | toggle mute | — |
-| `Space` | — | toggle picker visibility | — | — |
-| `/` | — | — | — | filter |
-| `Esc` / `q` | quit | quit | quit | cancel |
-| `r` | refresh | refresh | refresh | — |
-| `?` | help | help | help | help |
+| Key | Output/Input panes | Devices pane | Device picker |
+| --- | --- | --- | --- |
+| `1` / `2` / `3` | focus numbered pane | focus numbered pane | — |
+| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | — |
+| `j` / `↓`, `k` / `↑` | select route | select device | select device |
+| `g` / `G` | first / last route | first / last device | first / last device |
+| `Enter` | open picker | toggle picker visibility | apply |
+| `]` | increase selected volume 5% | — | — |
+| `[` | decrease selected volume 5% | — | — |
+| `m` | toggle selected mute | — | — |
+| `Space` | — | toggle picker visibility | — |
+| `/` | — | — | filter |
+| `Esc` / `q` | quit | quit | cancel |
+| `r` | refresh | refresh | — |
+| `?` | help | help | help |
 
 The Devices pane controls which physical devices appear in route pickers. Toggled visibility is
 stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable

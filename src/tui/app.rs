@@ -18,7 +18,6 @@ pub enum FocusPane {
     Output,
     Input,
     Devices,
-    Mixer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +219,7 @@ impl TuiApp {
                 Some(RouteTarget::OUTPUT[self.output_selected.min(RouteTarget::OUTPUT.len() - 1)])
             }
             FocusPane::Input => Some(RouteTarget::INPUT),
-            FocusPane::Devices | FocusPane::Mixer => None,
+            FocusPane::Devices => None,
         }
     }
 
@@ -338,26 +337,20 @@ impl TuiApp {
                 self.set_focus(FocusPane::Devices);
                 return;
             }
-            KeyCode::Char('4') => {
-                self.set_focus(FocusPane::Mixer);
-                return;
-            }
             KeyCode::Tab => {
                 let focus = match self.focus {
                     FocusPane::Output => FocusPane::Input,
                     FocusPane::Input => FocusPane::Devices,
-                    FocusPane::Devices => FocusPane::Mixer,
-                    FocusPane::Mixer => FocusPane::Output,
+                    FocusPane::Devices => FocusPane::Output,
                 };
                 self.set_focus(focus);
                 return;
             }
             KeyCode::BackTab => {
                 let focus = match self.focus {
-                    FocusPane::Output => FocusPane::Mixer,
+                    FocusPane::Output => FocusPane::Devices,
                     FocusPane::Input => FocusPane::Output,
                     FocusPane::Devices => FocusPane::Input,
-                    FocusPane::Mixer => FocusPane::Devices,
                 };
                 self.set_focus(focus);
                 return;
@@ -369,7 +362,6 @@ impl TuiApp {
             FocusPane::Output => self.handle_output_key(key).await,
             FocusPane::Input => self.handle_input_key(key).await,
             FocusPane::Devices => self.handle_devices_key(key).await,
-            FocusPane::Mixer => self.handle_mixer_key(key).await,
         }
     }
 
@@ -378,7 +370,7 @@ impl TuiApp {
         match focus {
             FocusPane::Output => self.sync_mixer_to_output(),
             FocusPane::Input => self.mixer_channel = MixerChannel::Microphone,
-            FocusPane::Devices | FocusPane::Mixer => {}
+            FocusPane::Devices => {}
         }
     }
 
@@ -416,6 +408,13 @@ impl TuiApp {
             }
             KeyCode::Char('?') => self.open_help(Mode::Channels),
             KeyCode::Enter => self.open_picker().await,
+            KeyCode::Char(']') | KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Right => {
+                self.adjust_mixer(5.0).await
+            }
+            KeyCode::Char('[') | KeyCode::Char('-') | KeyCode::Left => {
+                self.adjust_mixer(-5.0).await
+            }
+            KeyCode::Char('m') => self.toggle_mixer().await,
             _ => {}
         }
     }
@@ -429,6 +428,13 @@ impl TuiApp {
             }
             KeyCode::Char('?') => self.open_help(Mode::Channels),
             KeyCode::Enter => self.open_picker().await,
+            KeyCode::Char(']') | KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Right => {
+                self.adjust_mixer(5.0).await
+            }
+            KeyCode::Char('[') | KeyCode::Char('-') | KeyCode::Left => {
+                self.adjust_mixer(-5.0).await
+            }
+            KeyCode::Char('m') => self.toggle_mixer().await,
             _ => {}
         }
     }
@@ -459,25 +465,6 @@ impl TuiApp {
                     Err(err) => self.status = StatusLine::error(err.to_string()),
                 }
             }
-            KeyCode::Char('r') => {
-                self.status = StatusLine::info("Refreshing…");
-                self.refresh().await;
-            }
-            KeyCode::Char('?') => self.open_help(Mode::Channels),
-            _ => {}
-        }
-    }
-
-    async fn handle_mixer_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Char(']') | KeyCode::Right => {
-                self.adjust_mixer(5.0).await
-            }
-            KeyCode::Char('-') | KeyCode::Char('[') | KeyCode::Left => {
-                self.adjust_mixer(-5.0).await
-            }
-            KeyCode::Char('m') => self.toggle_mixer().await,
             KeyCode::Char('r') => {
                 self.status = StatusLine::info("Refreshing…");
                 self.refresh().await;
