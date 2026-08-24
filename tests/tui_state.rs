@@ -225,6 +225,31 @@ async fn mixer_uses_one_percent_steps_at_five_percent_and_below() {
 }
 
 #[tokio::test]
+async fn mixer_reaches_one_hundred_from_sonars_imprecise_ninety_five() {
+    let (mut tui, backend) = started().await;
+    backend
+        .volumes
+        .lock()
+        .unwrap()
+        .iter_mut()
+        .find(|state| state.channel == MixerChannel::Media)
+        .unwrap()
+        .volume = 0.9500000476837158;
+    tui.refresh().await;
+    for _ in 0..3 {
+        tui.handle_key(key(KeyCode::Char('j'))).await;
+    }
+
+    tui.handle_key(key(KeyCode::Char('l'))).await;
+
+    assert_eq!(
+        backend.volume_calls.lock().unwrap().last(),
+        Some(&(MixerChannel::Media, 1.0))
+    );
+    assert_eq!(tui.mixer_state().unwrap().percent(), 100.0);
+}
+
+#[tokio::test]
 async fn quits_on_q_and_ctrl_c() {
     let (mut tui, _) = started().await;
     tui.handle_key(key(KeyCode::Char('q'))).await;
