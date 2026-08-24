@@ -53,16 +53,28 @@ async fn devices_render_in_separate_output_and_input_sections() {
         .draw(|frame| ui::draw(frame, &tui))
         .expect("draw dashboard");
 
-    let rendered = terminal
+    let rows: Vec<String> = terminal
         .backend()
         .buffer()
         .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect::<String>();
+        .chunks(120)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect();
+    let rendered = rows.join("\n");
+    let position = |needle: &str| {
+        rows.iter()
+            .enumerate()
+            .find_map(|(y, row)| row.find(needle).map(|x| (x, y)))
+            .unwrap_or_else(|| panic!("missing {needle}"))
+    };
     let output = rendered.find("OUTPUT DEVICES").expect("output heading");
     let input = rendered.find("INPUT DEVICES").expect("input heading");
     assert!(output < input);
+    let devices_pane = position("[3] Devices");
+    let input_pane = position("[2] Input routing");
+    let details_pane = position("Channel details");
+    assert!(devices_pane.1 > input_pane.1);
+    assert!(details_pane.0 > devices_pane.0);
     assert!(rendered.contains("Arctis Nova Pro Wireless"));
     assert!(rendered.contains("Shure MV7"));
     assert!(rendered.contains("Channel details"));

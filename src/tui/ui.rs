@@ -49,12 +49,16 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
     let areas = Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(frame.area());
     let panels = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(areas[0]);
-    let routing = Layout::vertical([Constraint::Length(7), Constraint::Min(3)]).split(panels[0]);
-    let sidebar = Layout::vertical([Constraint::Length(6), Constraint::Min(3)]).split(panels[1]);
-    draw_output_routing(frame, app, routing[0]);
-    draw_input_routing(frame, app, routing[1]);
-    draw_mixer(frame, app, sidebar[0]);
-    draw_devices(frame, app, sidebar[1]);
+    let navigation = Layout::vertical([
+        Constraint::Length(7),
+        Constraint::Length(3),
+        Constraint::Min(3),
+    ])
+    .split(panels[0]);
+    draw_output_routing(frame, app, navigation[0]);
+    draw_input_routing(frame, app, navigation[1]);
+    draw_devices(frame, app, navigation[2]);
+    draw_mixer(frame, app, panels[1]);
     draw_footer(frame, app, areas[1]);
 
     match app.mode {

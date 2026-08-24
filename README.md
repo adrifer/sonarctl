@@ -180,17 +180,21 @@ otherwise, so aliases survive most hardware re-enumerations.
 ## TUI
 
 ```text
-┌ [1] Output routing ────────────┐┌ Channel details ───────────────┐
-│ > All Outputs  Mixed           ││ Channel  Master                 │
-│   Game         Headphones      ││ Volume   ████████████░░░  80%  │
-│   Chat         Headphones      ││ Muted    No                     │
-│   Media        Speakers        │├ [3] Devices ───────────────────┤
-│   Aux          Speakers        ││ ── OUTPUT DEVICES ──           │
-├ [2] Input routing ─────────────┤│ > [x] Headphones               │
-│   Microphone   Shure MV7       ││   [x] Speakers                 │
-│                                ││ ── INPUT DEVICES ──            │
-│                                ││   [x] Shure MV7                 │
-└────────────────────────────────┘└─────────────────────────────────┘
+┌ [1] Output routing ────────────────┐┌ Channel details ───────────────┐
+│ > All Outputs  Mixed               ││ Channel  Master                 │
+│   Game         Headphones          ││ Volume   ████████████░░░  80%  │
+│   Chat         Headphones          ││ Muted    No                     │
+│   Media        Speakers            ││                                │
+│   Aux          Speakers            ││                                │
+├ [2] Input routing ─────────────────┤│                                │
+│   Microphone   Shure MV7           ││                                │
+├ [3] Devices ───────────────────────┤│                                │
+│ ── OUTPUT DEVICES ──               ││                                │
+│ > [x] Headphones                   ││                                │
+│   [x] Speakers                     ││                                │
+│ ── INPUT DEVICES ──                ││                                │
+│   [x] Shure MV7                    ││                                │
+└────────────────────────────────────┘└────────────────────────────────┘
  [1] Output  [2] Input  [3] Devices  │  h/l volume  m mute  │  ? help  q quit
 ```
 
