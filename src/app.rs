@@ -7,7 +7,19 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::sonar::backend::SonarBackend;
-use crate::sonar::models::{AudioDevice, Channel, DeviceRole, Route};
+use crate::sonar::models::{AudioDevice, Channel, DeviceRole, MixerChannel, Route, VolumeState};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VolumeChange {
+    Absolute(f64),
+    Relative(f64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MuteChange {
+    Set(bool),
+    Toggle,
+}
 
 /// How the user asked for a device.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +35,8 @@ pub enum DeviceSelector {
 pub struct Snapshot {
     pub devices: Vec<AudioDevice>,
     pub routes: Vec<Route>,
+    pub volumes: Vec<VolumeState>,
+    pub volume_error: Option<String>,
 }
 
 impl Snapshot {
@@ -38,6 +52,10 @@ impl Snapshot {
     /// Current route for a channel, if Sonar reports one.
     pub fn route(&self, channel: Channel) -> Option<&Route> {
         self.routes.iter().find(|route| route.channel == channel)
+    }
+
+    pub fn volume(&self, channel: MixerChannel) -> Option<&VolumeState> {
+        self.volumes.iter().find(|state| state.channel == channel)
     }
 }
 
@@ -75,6 +93,14 @@ impl App {
         self.backend.routes().await
     }
 
+    pub async fn volumes(&self) -> Result<Vec<VolumeState>> {
+        self.backend.volumes().await
+    }
+
+    pub async fn volume(&self, channel: MixerChannel) -> Result<VolumeState> {
+        find_volume(self.volumes().await?, channel)
+    }
+
     /// Current routing for one channel.
     pub async fn route(&self, channel: Channel) -> Result<Route> {
         self.routes()
@@ -89,11 +115,20 @@ impl App {
             })
     }
 
-    /// Devices and routes fetched together (used by the TUI).
+    /// Devices, routes, and mixer state fetched together (used by the TUI).
     pub async fn snapshot(&self) -> Result<Snapshot> {
         let devices = self.devices(None).await?;
         let routes = self.backend.routes().await?;
-        Ok(Snapshot { devices, routes })
+        let (volumes, volume_error) = match self.backend.volumes().await {
+            Ok(volumes) => (volumes, None),
+            Err(err) => (Vec::new(), Some(err.to_string())),
+        };
+        Ok(Snapshot {
+            devices,
+            routes,
+            volumes,
+            volume_error,
+        })
     }
 
     /// Resolve a selector against the devices compatible with `channel`.
@@ -162,6 +197,130 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Apply an absolute or relative percentage change transactionally.
+    pub async fn change_volumes(
+        &self,
+        channels: &[MixerChannel],
+        change: VolumeChange,
+    ) -> Result<Vec<VolumeState>> {
+        let states = self.backend.volumes().await?;
+        let mut changes = Vec::with_capacity(channels.len());
+        for channel in channels {
+            let original = find_volume(states.clone(), *channel)?;
+            let target_percent = match change {
+                VolumeChange::Absolute(percent) => percent,
+                VolumeChange::Relative(delta) => original.percent() + delta,
+            };
+            validate_percent(target_percent)?;
+            changes.push((original, target_percent / 100.0));
+        }
+
+        let mut applied = Vec::with_capacity(changes.len());
+        for (original, target) in &changes {
+            applied.push(*original);
+            if let Err(primary) = self.backend.set_volume(original.channel, *target).await {
+                let rollback = self.rollback_volumes(&applied).await;
+                return Err(with_rollback_error(primary, rollback, "volume"));
+            }
+        }
+
+        Ok(changes
+            .into_iter()
+            .map(|(mut state, target)| {
+                state.volume = target;
+                state
+            })
+            .collect())
+    }
+
+    /// Apply mute, unmute, or toggle transactionally.
+    pub async fn change_mutes(
+        &self,
+        channels: &[MixerChannel],
+        change: MuteChange,
+    ) -> Result<Vec<VolumeState>> {
+        let states = self.backend.volumes().await?;
+        let mut changes = Vec::with_capacity(channels.len());
+        for channel in channels {
+            let original = find_volume(states.clone(), *channel)?;
+            let target = match change {
+                MuteChange::Set(muted) => muted,
+                MuteChange::Toggle => !original.muted,
+            };
+            changes.push((original, target));
+        }
+
+        let mut applied = Vec::with_capacity(changes.len());
+        for (original, target) in &changes {
+            applied.push(*original);
+            if let Err(primary) = self.backend.set_muted(original.channel, *target).await {
+                let rollback = self.rollback_mutes(&applied).await;
+                return Err(with_rollback_error(primary, rollback, "mute"));
+            }
+        }
+
+        Ok(changes
+            .into_iter()
+            .map(|(mut state, target)| {
+                state.muted = target;
+                state
+            })
+            .collect())
+    }
+
+    async fn rollback_volumes(&self, states: &[VolumeState]) -> Vec<String> {
+        let mut failures = Vec::new();
+        for state in states.iter().rev() {
+            if let Err(err) = self.backend.set_volume(state.channel, state.volume).await {
+                failures.push(format!("{}: {err}", state.channel));
+            }
+        }
+        failures
+    }
+
+    async fn rollback_mutes(&self, states: &[VolumeState]) -> Vec<String> {
+        let mut failures = Vec::new();
+        for state in states.iter().rev() {
+            if let Err(err) = self.backend.set_muted(state.channel, state.muted).await {
+                failures.push(format!("{}: {err}", state.channel));
+            }
+        }
+        failures
+    }
+}
+
+fn find_volume(states: Vec<VolumeState>, channel: MixerChannel) -> Result<VolumeState> {
+    states
+        .into_iter()
+        .find(|state| state.channel == channel)
+        .ok_or_else(|| {
+            Error::unexpected(format!(
+                "Sonar did not report mixer state for the {} channel",
+                channel.display_name()
+            ))
+        })
+}
+
+fn validate_percent(percent: f64) -> Result<()> {
+    if percent.is_finite() && (0.0..=100.0).contains(&percent) {
+        Ok(())
+    } else {
+        Err(Error::InvalidArguments(format!(
+            "Volume must be between 0 and 100 percent, got {percent}."
+        )))
+    }
+}
+
+fn with_rollback_error(primary: Error, rollback: Vec<String>, operation: &str) -> Error {
+    if rollback.is_empty() {
+        primary
+    } else {
+        Error::unexpected(format!(
+            "multi-channel {operation} change failed ({primary}); rollback also failed for {}",
+            rollback.join(", ")
+        ))
     }
 }
 

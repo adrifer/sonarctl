@@ -4,7 +4,7 @@ mod common;
 
 use sonarctl::config::Config;
 use sonarctl::sonar::backend::SonarBackend;
-use sonarctl::sonar::models::Channel;
+use sonarctl::sonar::models::{Channel, MixerChannel};
 use sonarctl::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 use sonarctl::tui::event::{Key, KeyCode, KeyModifiers};
 
@@ -27,6 +27,19 @@ async fn shows_current_routes_after_refresh() {
     assert_eq!(tui.device_for(Channel::Game), "Arctis Nova Pro Wireless");
     assert_eq!(tui.device_for(Channel::Microphone), "Shure MV7");
     assert!(tui.status.text.is_empty());
+}
+
+#[tokio::test]
+async fn mixer_api_failure_does_not_disable_routing_panes() {
+    let backend = std::sync::Arc::new(common::MockBackend::volume_failing());
+    let app = sonarctl::app::App::new(backend, Config::default());
+    let mut tui = TuiApp::new(app);
+    tui.refresh().await;
+
+    assert_eq!(tui.device_for(Channel::Game), "Arctis Nova Pro Wireless");
+    assert!(tui.mixer_state().is_none());
+    assert!(tui.mixer_error().is_some());
+    assert!(!tui.status.is_error);
 }
 
 #[tokio::test]
@@ -70,9 +83,39 @@ async fn focuses_numbered_panes_directly_and_with_tab() {
     assert_eq!(tui.selected_target(), None);
 
     tui.handle_key(key(KeyCode::Tab)).await;
+    assert_eq!(tui.focus, FocusPane::Mixer);
+    tui.handle_key(key(KeyCode::Tab)).await;
     assert_eq!(tui.focus, FocusPane::Output);
     tui.handle_key(key(KeyCode::BackTab)).await;
-    assert_eq!(tui.focus, FocusPane::Devices);
+    assert_eq!(tui.focus, FocusPane::Mixer);
+}
+
+#[tokio::test]
+async fn mixer_tracks_route_selection_and_changes_volume_and_mute() {
+    let (mut tui, backend) = started().await;
+    assert_eq!(tui.mixer_channel, MixerChannel::Master);
+    assert_eq!(tui.mixer_state().unwrap().percent(), 80.0);
+
+    tui.handle_key(key(KeyCode::Char('j'))).await;
+    assert_eq!(tui.mixer_channel, MixerChannel::Game);
+    tui.handle_key(key(KeyCode::Char('4'))).await;
+    assert_eq!(tui.focus, FocusPane::Mixer);
+
+    tui.handle_key(key(KeyCode::Char('-'))).await;
+    assert_eq!(tui.mixer_state().unwrap().percent(), 95.0);
+    tui.handle_key(key(KeyCode::Char('m'))).await;
+    assert!(tui.mixer_state().unwrap().muted);
+    assert_eq!(
+        backend.volume_calls.lock().unwrap().as_slice(),
+        &[(MixerChannel::Game, 0.95)]
+    );
+    assert_eq!(
+        backend.mute_calls.lock().unwrap().as_slice(),
+        &[(MixerChannel::Game, true)]
+    );
+
+    tui.handle_key(key(KeyCode::Char('2'))).await;
+    assert_eq!(tui.mixer_channel, MixerChannel::Microphone);
 }
 
 #[tokio::test]

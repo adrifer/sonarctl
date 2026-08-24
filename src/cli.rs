@@ -2,17 +2,18 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::app::VolumeChange;
 use crate::error::{Error, Result};
-use crate::sonar::models::{Channel, DeviceRole};
+use crate::sonar::models::{Channel, DeviceRole, MixerChannel};
 
-/// Lightweight controller for SteelSeries Sonar device routing.
+/// Lightweight controller for SteelSeries Sonar routing and mixer state.
 #[derive(Debug, Parser)]
 #[command(
     name = "sonarctl",
     version,
-    about = "Control SteelSeries Sonar device routing from the terminal",
+    about = "Control SteelSeries Sonar routing and mixer state from the terminal",
     disable_help_subcommand = true
 )]
 pub struct Cli {
@@ -55,6 +56,15 @@ pub enum Command {
 
     /// Route a channel to a device
     Set(SetArgs),
+
+    /// Show or change classic-mode channel volume
+    Volume(VolumeArgs),
+
+    /// Mute a channel, or toggle its mute state
+    Mute(MuteArgs),
+
+    /// Unmute a channel
+    Unmute(MixerChannelsArgs),
 
     /// Diagnose the SteelSeries GG / Sonar connection
     Doctor,
@@ -106,6 +116,50 @@ pub struct SetArgs {
     pub id: Option<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct VolumeArgs {
+    /// Mixer channel (master, game, chat, media, aux, microphone)
+    pub channel: Option<String>,
+
+    /// Absolute percentage (`75`) or relative change (`+5`, `-5`)
+    #[arg(allow_hyphen_values = true)]
+    pub value: Option<String>,
+
+    /// Machine readable output
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum MuteAction {
+    Mute,
+    Toggle,
+}
+
+#[derive(Debug, Args)]
+pub struct MuteArgs {
+    /// Mixer channel, comma-separated channels, or `all`
+    pub channels: String,
+
+    /// Mute action
+    #[arg(value_enum, default_value = "mute")]
+    pub action: MuteAction,
+
+    /// Machine readable output
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct MixerChannelsArgs {
+    /// Mixer channel, comma-separated channels, or `all`
+    pub channels: String,
+
+    /// Machine readable output
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
     /// Print the configuration file path
@@ -136,4 +190,53 @@ pub fn parse_channels(input: &str) -> Result<Vec<Channel>> {
         ));
     }
     Ok(channels)
+}
+
+/// Parse mixer channels, including the master bus and `all`.
+pub fn parse_mixer_channels(input: &str) -> Result<Vec<MixerChannel>> {
+    if input.trim().eq_ignore_ascii_case("all") {
+        return Ok(MixerChannel::ALL.to_vec());
+    }
+
+    let mut channels = Vec::new();
+    for part in input.split(',') {
+        let name = part.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let channel = MixerChannel::parse(name).ok_or_else(|| Error::UnknownChannel {
+            channel: name.to_string(),
+        })?;
+        if !channels.contains(&channel) {
+            channels.push(channel);
+        }
+    }
+    if channels.is_empty() {
+        return Err(Error::InvalidArguments(
+            "No channel was given. Expected master, game, chat, media, aux, microphone, or all."
+                .to_string(),
+        ));
+    }
+    Ok(channels)
+}
+
+/// Parse an absolute percentage or signed relative percentage.
+pub fn parse_volume_change(input: &str) -> Result<VolumeChange> {
+    let value = input.trim().trim_end_matches('%');
+    let relative = value.starts_with('+') || value.starts_with('-');
+    let percent = value.parse::<f64>().map_err(|_| {
+        Error::InvalidArguments(format!(
+            "Invalid volume `{input}`. Use an absolute percentage such as 75 or a relative change such as +5 or -5."
+        ))
+    })?;
+    if !percent.is_finite() {
+        return Err(Error::InvalidArguments(
+            "Volume must be a finite number.".to_string(),
+        ));
+    }
+    Ok(if relative {
+        VolumeChange::Relative(percent)
+    } else {
+        VolumeChange::Absolute(percent)
+    })
 }

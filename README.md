@@ -1,11 +1,14 @@
 # sonarctl
 
-A small CLI and TUI for controlling **SteelSeries Sonar** device routing from a terminal.
+A small CLI and TUI for controlling **SteelSeries Sonar** routing, volume, and mute state from a
+terminal.
 
 ```bash
 sonarctl status
 sonarctl devices
 sonarctl set game headphones
+sonarctl volume game 75
+sonarctl mute chat toggle
 sonarctl
 ```
 
@@ -13,14 +16,15 @@ sonarctl
 
 `sonarctl` is a lightweight client for Sonar's local HTTP API. It inspects and changes which
 physical playback/capture device each Sonar virtual channel (Game, Chat, Media, Aux, Microphone)
-is routed to — without opening the SteelSeries GG window.
+is routed to, and controls classic-mode channel volume and mute state — without opening the
+SteelSeries GG window.
 
 ## What sonarctl is not
 
 It is **not** an audio driver, a virtual audio device, or a replacement for the Sonar audio engine.
 SteelSeries GG and Sonar remain installed and running; `sonarctl` only tells Sonar which physical
-endpoint to use. V1 does not touch EQ, ChatMix, volume, spatial audio, per-application routing or
-Windows default devices.
+endpoint to use. It does not touch EQ, ChatMix, spatial audio, per-application routing or Windows
+default devices.
 
 ## Requirements
 
@@ -72,6 +76,9 @@ sonarctl status            # show the current routing
 sonarctl devices           # list playback and capture devices
 sonarctl get game          # print the device the Game channel uses
 sonarctl set game headphones
+sonarctl volume             # show mixer volume and mute state
+sonarctl volume game -5    # lower Game by 5 percentage points
+sonarctl mute chat toggle
 sonarctl                   # interactive TUI
 ```
 
@@ -102,10 +109,16 @@ Game → LG TV
 | `sonarctl get <channel> [--json]` | Device used by one channel |
 | `sonarctl set <channel[,channel…]> <device>` | Route one or more channels |
 | `sonarctl set <channel> --id "<device-id>"` | Route using an exact device id |
+| `sonarctl volume [channel] [percent] [--json]` | Show or set volume; signed values are relative |
+| `sonarctl mute <channel[,channel…]\|all> [mute\|toggle] [--json]` | Mute or toggle channels |
+| `sonarctl unmute <channel[,channel…]\|all> [--json]` | Unmute channels |
 | `sonarctl doctor [-v]` | Diagnose discovery and API problems |
 | `sonarctl config path\|show` | Configuration location and contents |
 
 Channels are `game` (alias `gaming`), `chat`, `media`, `aux` and `microphone` (alias `mic`).
+Mixer commands also accept `master`; multi-channel mute commands and `volume all` accept `all`.
+Volume is expressed as `0`–`100`. A leading `+` or `-` makes the value relative, and invalid
+out-of-range changes are rejected rather than clamped.
 
 Global flags:
 
@@ -168,33 +181,37 @@ otherwise, so aliases survive most hardware re-enumerations.
 
 ```text
 ┌ [1] Output routing ────────────┐┌ [3] Devices ───────────────────┐
-│ > All Outputs  Mixed           ││ > [x] Playback  Headphones      │
+│ > All Outputs  Mixed           ││ > [x] Playback  Headphones     │
 │   Game         Headphones      ││   [x] Playback  Speakers       │
 │   Chat         Headphones      ││   [ ] Playback  HDMI Display   │
 │   Media        Speakers        ││   [x] Capture   Shure MV7      │
-│   Aux          Speakers        ││                                 │
-├ [2] Input routing ─────────────┤│                                 │
-│   Microphone   Shure MV7       ││                                 │
+│   Aux          Speakers        │├ [4] Master mixer ──────────────┤
+├ [2] Input routing ─────────────┤│ 80%  unmuted                    │
+│   Microphone   Shure MV7       ││ ████████████████░░░░           │
 └────────────────────────────────┘└─────────────────────────────────┘
- [1] Output  [2] Input  [3] Devices  │  ↑↓ select  Enter change  │  ? help  q quit
+ [1] Output  [2] Input  [3] Devices  [4] Mixer  │  ? help  q quit
 ```
 
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
-numbered Input pane. Press `1`, `2`, or `3` to focus a pane directly; `Tab` cycles focus. This pane
-model leaves room for future channel details and controls without changing the navigation system.
+numbered Input pane. The Mixer pane follows the selected output route (with `All Outputs` mapped to
+Master) or Microphone when Input is selected. Press `1`, `2`, `3`, or `4` to focus a pane directly;
+`Tab` cycles focus.
 
-| Key | Output/Input panes | Devices pane | Device picker |
-| --- | --- | --- | --- |
-| `1` / `2` / `3` | focus numbered pane | focus numbered pane | — |
-| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | — |
-| `j` / `↓`, `k` / `↑` | select route | select device | select device |
-| `g` / `G` | first / last route | first / last device | first / last device |
-| `Enter` | open picker | toggle picker visibility | apply |
-| `Space` | — | toggle picker visibility | — |
-| `/` | — | — | filter |
-| `Esc` / `q` | quit | quit | cancel |
-| `r` | refresh | refresh | — |
-| `?` | help | help | help |
+| Key | Output/Input panes | Devices pane | Mixer pane | Device picker |
+| --- | --- | --- | --- | --- |
+| `1` / `2` / `3` / `4` | focus numbered pane | focus numbered pane | focus numbered pane | — |
+| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | cycle pane focus | — |
+| `j` / `↓`, `k` / `↑` | select route | select device | — | select device |
+| `g` / `G` | first / last route | first / last device | — | first / last device |
+| `Enter` | open picker | toggle picker visibility | — | apply |
+| `+` / `]` / `→` | — | — | increase volume 5% | — |
+| `-` / `[` / `←` | — | — | decrease volume 5% | — |
+| `m` | — | — | toggle mute | — |
+| `Space` | — | toggle picker visibility | — | — |
+| `/` | — | — | — | filter |
+| `Esc` / `q` | quit | quit | quit | cancel |
+| `r` | refresh | refresh | refresh | — |
+| `?` | help | help | help | help |
 
 The Devices pane controls which physical devices appear in route pickers. Toggled visibility is
 stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable
@@ -209,6 +226,8 @@ always restored — on quit, `Ctrl+C`, errors and panics.
 sonarctl status --json
 sonarctl devices --json
 sonarctl get game --json
+sonarctl volume --json
+sonarctl mute chat toggle --json
 ```
 
 ```json
@@ -310,7 +329,7 @@ src/
 │   ├── backend.rs   SonarBackend trait, rediscovery and retry
 │   ├── client.rs    HTTP clients for GG and Sonar
 │   ├── discovery.rs coreProps.json, /subApps, locality checks
-│   ├── models.rs    Channel, AudioDevice, Route
+│   ├── models.rs    Channel, AudioDevice, Route, VolumeState
 │   └── routing.rs   channel ↔ API id mapping, URL encoding
 ├── platform/        Windows paths
 └── tui/             ratatui interface (app state, events, rendering)
@@ -322,9 +341,9 @@ CLI and TUI both call the application layer; only `src/sonar/` knows about Steel
 
 `cargo test` runs entirely offline using JSON fixtures in `tests/fixtures/` and a mock HTTP server
 (`wiremock`). Covered: coreProps parsing, GG/Sonar discovery, device and route parsing, virtual
-device filtering, URL encoding, route mutation and verification, malformed payloads, Sonar port
-changes and rediscovery, configuration, device matching and aliases, CLI parsing, rendered output
-and TUI state transitions.
+device filtering, URL encoding, verified route/volume/mute mutations, malformed payloads, Sonar
+port changes and rediscovery, configuration, device matching and aliases, CLI parsing, rendered
+output and TUI state transitions.
 
 Tests against a real installation are opt-in:
 
@@ -351,4 +370,4 @@ ignored, optional fields tolerated), and every SteelSeries-specific mapping is i
 
 ## License
 
-Personal project; no license granted yet.
+MIT. See [LICENSE](LICENSE).

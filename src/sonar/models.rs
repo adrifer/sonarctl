@@ -88,6 +88,112 @@ impl std::str::FromStr for Channel {
     }
 }
 
+/// A Sonar mixer channel, including the master bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MixerChannel {
+    Master,
+    Game,
+    Chat,
+    Media,
+    Aux,
+    Microphone,
+}
+
+impl MixerChannel {
+    pub const ALL: [MixerChannel; 6] = [
+        MixerChannel::Master,
+        MixerChannel::Game,
+        MixerChannel::Chat,
+        MixerChannel::Media,
+        MixerChannel::Aux,
+        MixerChannel::Microphone,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MixerChannel::Master => "master",
+            MixerChannel::Game => "game",
+            MixerChannel::Chat => "chat",
+            MixerChannel::Media => "media",
+            MixerChannel::Aux => "aux",
+            MixerChannel::Microphone => "microphone",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            MixerChannel::Master => "Master",
+            MixerChannel::Game => "Game",
+            MixerChannel::Chat => "Chat",
+            MixerChannel::Media => "Media",
+            MixerChannel::Aux => "Aux",
+            MixerChannel::Microphone => "Microphone",
+        }
+    }
+
+    pub fn api_id(self) -> &'static str {
+        match self {
+            MixerChannel::Master => "master",
+            MixerChannel::Game => "game",
+            MixerChannel::Chat => "chatRender",
+            MixerChannel::Media => "media",
+            MixerChannel::Aux => "aux",
+            MixerChannel::Microphone => "chatCapture",
+        }
+    }
+
+    pub fn parse(input: &str) -> Option<MixerChannel> {
+        if input.trim().eq_ignore_ascii_case("master") {
+            return Some(MixerChannel::Master);
+        }
+        Channel::parse(input).map(Into::into)
+    }
+}
+
+impl From<Channel> for MixerChannel {
+    fn from(channel: Channel) -> Self {
+        match channel {
+            Channel::Game => MixerChannel::Game,
+            Channel::Chat => MixerChannel::Chat,
+            Channel::Media => MixerChannel::Media,
+            Channel::Aux => MixerChannel::Aux,
+            Channel::Microphone => MixerChannel::Microphone,
+        }
+    }
+}
+
+impl std::fmt::Display for MixerChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.display_name())
+    }
+}
+
+impl std::str::FromStr for MixerChannel {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        MixerChannel::parse(s).ok_or_else(|| Error::UnknownChannel {
+            channel: s.to_string(),
+        })
+    }
+}
+
+/// Classic-mode volume and mute state for one mixer channel.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct VolumeState {
+    pub channel: MixerChannel,
+    /// Sonar's native normalized value (`0.0..=1.0`).
+    pub volume: f64,
+    pub muted: bool,
+}
+
+impl VolumeState {
+    pub fn percent(self) -> f64 {
+        self.volume * 100.0
+    }
+}
+
 /// Direction of an audio endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -237,6 +343,69 @@ pub fn parse_devices(value: &Value) -> Result<Vec<AudioDevice>> {
     }
 
     Ok(devices)
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct RawVolumeState {
+    volume: f64,
+    muted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawVolumeContainer {
+    classic: RawVolumeState,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawDeviceVolumes {
+    game: RawVolumeContainer,
+    #[serde(rename = "chatRender")]
+    chat: RawVolumeContainer,
+    media: RawVolumeContainer,
+    aux: RawVolumeContainer,
+    #[serde(rename = "chatCapture")]
+    microphone: RawVolumeContainer,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawClassicVolumes {
+    masters: RawVolumeContainer,
+    devices: RawDeviceVolumes,
+}
+
+/// Parse the strict fields required from `GET /volumeSettings/classic`.
+pub fn parse_classic_volumes(value: &Value) -> Result<Vec<VolumeState>> {
+    let raw: RawClassicVolumes = serde_json::from_value(value.clone()).map_err(|err| {
+        Error::unexpected(format!(
+            "/volumeSettings/classic returned an invalid volume payload: {err}"
+        ))
+    })?;
+    let values = [
+        (MixerChannel::Master, raw.masters.classic),
+        (MixerChannel::Game, raw.devices.game.classic),
+        (MixerChannel::Chat, raw.devices.chat.classic),
+        (MixerChannel::Media, raw.devices.media.classic),
+        (MixerChannel::Aux, raw.devices.aux.classic),
+        (MixerChannel::Microphone, raw.devices.microphone.classic),
+    ];
+
+    values
+        .into_iter()
+        .map(|(channel, state)| {
+            if !state.volume.is_finite() || !(0.0..=1.0).contains(&state.volume) {
+                return Err(Error::unexpected(format!(
+                    "/volumeSettings/classic reported an invalid {} volume: {}",
+                    channel.as_str(),
+                    state.volume
+                )));
+            }
+            Ok(VolumeState {
+                channel,
+                volume: state.volume,
+                muted: state.muted,
+            })
+        })
+        .collect()
 }
 
 /// Extract an array from a value that may be an array or an object wrapper.

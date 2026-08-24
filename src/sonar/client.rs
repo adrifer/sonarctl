@@ -9,10 +9,13 @@ use crate::error::{Error, Result};
 use crate::sonar::discovery::{
     self, DiscoveryOptions, SonarSubApp, sonar_base_url, validate_local_url,
 };
-use crate::sonar::models::{AudioDevice, Channel, Route, parse_devices};
+use crate::sonar::models::{
+    AudioDevice, Channel, MixerChannel, Route, VolumeState, parse_classic_volumes, parse_devices,
+};
 use crate::sonar::routing::{ROUTES_PATH, parse_routes, route_api_id, set_route_path_with_id};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const CLASSIC_VOLUMES_PATH: &str = "volumeSettings/classic";
 
 fn ensure_crypto_provider() {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -137,13 +140,20 @@ impl SonarClient {
                 })?;
 
         let status = response.status();
-        if status.is_server_error() {
-            return Err(Error::SonarUnreachable {
-                url: url.to_string(),
-                detail: format!("Sonar returned HTTP {status}"),
-            });
-        }
         if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            let folded = body.to_ascii_lowercase();
+            if folded.contains("current mode") || folded.contains("cannot be called") {
+                return Err(Error::unexpected(format!(
+                    "GET {url} is unavailable in Sonar's current mode"
+                )));
+            }
+            if status.is_server_error() {
+                return Err(Error::SonarUnreachable {
+                    url: url.to_string(),
+                    detail: format!("Sonar returned HTTP {status}"),
+                });
+            }
             return Err(Error::unexpected(format!(
                 "GET {url} returned HTTP {status}"
             )));
@@ -153,6 +163,42 @@ impl SonarClient {
             .json()
             .await
             .map_err(|err| Error::unexpected(format!("GET {url} returned invalid JSON: {err}")))
+    }
+
+    async fn put_empty(&self, path: &str) -> Result<()> {
+        let url = join(&self.base_url, path)?;
+        tracing::debug!(%url, "PUT");
+
+        let response =
+            self.http
+                .put(url.clone())
+                .send()
+                .await
+                .map_err(|err| Error::SonarUnreachable {
+                    url: url.to_string(),
+                    detail: err.to_string(),
+                })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            let folded = body.to_ascii_lowercase();
+            if folded.contains("current mode") || folded.contains("cannot be called") {
+                return Err(Error::unexpected(format!(
+                    "PUT {url} is unavailable in Sonar's current mode"
+                )));
+            }
+            if status.is_server_error() {
+                return Err(Error::SonarUnreachable {
+                    url: url.to_string(),
+                    detail: format!("Sonar returned HTTP {status}"),
+                });
+            }
+            return Err(Error::unexpected(format!(
+                "PUT {url} returned HTTP {status}"
+            )));
+        }
+        Ok(())
     }
 
     /// Every endpoint Sonar knows about, including its own virtual devices.
@@ -167,35 +213,81 @@ impl SonarClient {
         parse_routes(&value)
     }
 
+    pub async fn volumes(&self) -> Result<Vec<VolumeState>> {
+        let value = self.get_json(CLASSIC_VOLUMES_PATH).await?;
+        parse_classic_volumes(&value)
+    }
+
+    pub async fn set_volume(&self, channel: MixerChannel, volume: f64) -> Result<()> {
+        if !volume.is_finite() || !(0.0..=1.0).contains(&volume) {
+            return Err(Error::InvalidArguments(
+                "Volume must be between 0 and 100 percent.".to_string(),
+            ));
+        }
+        self.put_empty(&format!(
+            "{CLASSIC_VOLUMES_PATH}/{}/Volume/{volume}",
+            channel.api_id()
+        ))
+        .await?;
+
+        let actual = self
+            .volumes()
+            .await?
+            .into_iter()
+            .find(|state| state.channel == channel)
+            .ok_or_else(|| {
+                Error::unexpected(format!(
+                    "Sonar did not report {} volume after the change",
+                    channel.display_name()
+                ))
+            })?;
+        if (actual.volume - volume).abs() <= f64::EPSILON {
+            Ok(())
+        } else {
+            Err(Error::unexpected(format!(
+                "Sonar did not apply the {} volume change: expected {:.2}%, got {:.2}%",
+                channel.display_name(),
+                volume * 100.0,
+                actual.percent()
+            )))
+        }
+    }
+
+    pub async fn set_muted(&self, channel: MixerChannel, muted: bool) -> Result<()> {
+        self.put_empty(&format!(
+            "{CLASSIC_VOLUMES_PATH}/{}/Mute/{muted}",
+            channel.api_id()
+        ))
+        .await?;
+
+        let actual = self
+            .volumes()
+            .await?
+            .into_iter()
+            .find(|state| state.channel == channel)
+            .ok_or_else(|| {
+                Error::unexpected(format!(
+                    "Sonar did not report {} mute state after the change",
+                    channel.display_name()
+                ))
+            })?;
+        if actual.muted == muted {
+            Ok(())
+        } else {
+            Err(Error::unexpected(format!(
+                "Sonar did not apply the {} mute change",
+                channel.display_name()
+            )))
+        }
+    }
+
     /// Point a channel at a device, then verify Sonar applied the change.
     pub async fn set_route(&self, channel: Channel, device_id: &str) -> Result<()> {
         let current_routes = self.get_json(ROUTES_PATH).await?;
         let api_id = route_api_id(&current_routes, channel)?;
-        let url = join(&self.base_url, &set_route_path_with_id(&api_id, device_id))?;
-        tracing::debug!(%url, channel = channel.as_str(), "PUT route");
-
-        let response =
-            self.http
-                .put(url.clone())
-                .send()
-                .await
-                .map_err(|err| Error::SonarUnreachable {
-                    url: url.to_string(),
-                    detail: err.to_string(),
-                })?;
-
-        let status = response.status();
-        if status.is_server_error() {
-            return Err(Error::SonarUnreachable {
-                url: url.to_string(),
-                detail: format!("Sonar returned HTTP {status}"),
-            });
-        }
-        if !status.is_success() {
-            return Err(Error::unexpected(format!(
-                "PUT {url} returned HTTP {status}"
-            )));
-        }
+        let path = set_route_path_with_id(&api_id, device_id);
+        tracing::debug!(channel = channel.as_str(), "setting route");
+        self.put_empty(&path).await?;
 
         let routes = self.routes().await?;
         let actual = routes

@@ -10,7 +10,7 @@ use sonarctl::error::{Error, Result};
 use sonarctl::sonar::backend::{Discoverer, SonarBackend, SonarHttpBackend};
 use sonarctl::sonar::client::{SonarClient, build_gg_client, fetch_sub_apps};
 use sonarctl::sonar::discovery::sonar_base_url;
-use sonarctl::sonar::models::Channel;
+use sonarctl::sonar::models::{Channel, MixerChannel};
 use url::Url;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -32,6 +32,14 @@ async fn sonar_server() -> MockServer {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_raw(fixture("classicRedirections.json"), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/volumeSettings/classic"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(fixture("volumeSettingsClassic.json"), "application/json"),
         )
         .mount(&server)
         .await;
@@ -61,6 +69,97 @@ async fn reads_devices_and_routes_over_http() {
     let routes = client.routes().await.expect("routes");
     assert_eq!(routes.len(), 5);
     assert_eq!(routes[0].channel, Channel::Game);
+
+    let volumes = client.volumes().await.expect("volumes");
+    assert_eq!(volumes.len(), 6);
+    assert_eq!(volumes[0].channel, MixerChannel::Master);
+    assert_eq!(volumes[0].percent(), 80.0);
+    assert!(volumes[2].muted);
+}
+
+#[tokio::test]
+async fn set_volume_and_mute_use_typed_channel_paths_and_verify() {
+    let server = sonar_server().await;
+    Mock::given(method("PUT"))
+        .and(path("/volumeSettings/classic/game/Volume/1"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/volumeSettings/classic/chatCapture/Mute/false"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server);
+    client
+        .set_volume(MixerChannel::Game, 1.0)
+        .await
+        .expect("set volume");
+    client
+        .set_muted(MixerChannel::Microphone, false)
+        .await
+        .expect("set mute");
+}
+
+#[tokio::test]
+async fn volume_mutations_fail_when_sonar_does_not_apply_them() {
+    let server = sonar_server().await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/volumeSettings/classic/.*$"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server);
+    let volume_err = client
+        .set_volume(MixerChannel::Game, 0.5)
+        .await
+        .unwrap_err();
+    assert!(matches!(volume_err, Error::UnexpectedApi { .. }));
+
+    let mute_err = client
+        .set_muted(MixerChannel::Chat, false)
+        .await
+        .unwrap_err();
+    assert!(matches!(mute_err, Error::UnexpectedApi { .. }));
+}
+
+#[tokio::test]
+async fn current_mode_errors_are_api_failures_not_stale_connections() {
+    let server = sonar_server().await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/volumeSettings/classic/.*$"))
+        .respond_with(
+            ResponseTemplate::new(500).set_body_string("Cannot be called in current mode"),
+        )
+        .mount(&server)
+        .await;
+
+    let err = client_for(&server)
+        .set_volume(MixerChannel::Game, 0.5)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::UnexpectedApi { .. }));
+    assert!(!err.is_stale_connection());
+}
+
+#[tokio::test]
+async fn rejects_invalid_volume_payloads() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/volumeSettings/classic"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(
+                r#"{"masters":{"classic":{"volume":2,"muted":false}},"devices":{}}"#,
+            ),
+        )
+        .mount(&server)
+        .await;
+
+    let err = client_for(&server).volumes().await.unwrap_err();
+    assert!(matches!(err, Error::UnexpectedApi { .. }));
+    assert_eq!(err.exit_code(), 7);
 }
 
 #[tokio::test]

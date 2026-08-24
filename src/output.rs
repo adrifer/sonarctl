@@ -5,7 +5,7 @@
 
 use serde_json::{Value, json};
 
-use crate::sonar::models::{AudioDevice, Channel, Route};
+use crate::sonar::models::{AudioDevice, Channel, Route, VolumeState};
 
 /// Render `sonarctl status`.
 pub fn status_text(routes: &[Route]) -> String {
@@ -67,6 +67,49 @@ pub fn get_json(route: &Route) -> Value {
 pub fn set_text(channel: Channel, device: &AudioDevice, unicode: bool) -> String {
     let arrow = if unicode { "→" } else { "->" };
     format!("{} {arrow} {}\n", channel.display_name(), device.name)
+}
+
+/// Render classic-mode volume and mute state.
+pub fn volumes_text(states: &[VolumeState]) -> String {
+    table(
+        &["CHANNEL", "VOLUME", "STATE"],
+        states
+            .iter()
+            .map(|state| {
+                vec![
+                    state.channel.display_name().to_string(),
+                    format_percent(state.percent()),
+                    if state.muted {
+                        "muted".to_string()
+                    } else {
+                        "unmuted".to_string()
+                    },
+                ]
+            })
+            .collect(),
+    )
+}
+
+/// Stable JSON representation of classic-mode mixer state.
+pub fn volumes_json(states: &[VolumeState]) -> Value {
+    json!({
+        "channels": states.iter().map(|state| json!({
+            "channel": state.channel.as_str(),
+            "volume": state.percent(),
+            "muted": state.muted,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn format_percent(percent: f64) -> String {
+    let mut text = format!("{percent:.2}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    format!("{text}%")
 }
 
 fn route_json(route: &Route) -> Value {

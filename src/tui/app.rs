@@ -5,9 +5,9 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{App, Snapshot};
+use crate::app::{App, MuteChange, Snapshot, VolumeChange};
 use crate::error::Error;
-use crate::sonar::models::{AudioDevice, Channel, DeviceRole};
+use crate::sonar::models::{AudioDevice, Channel, DeviceRole, MixerChannel, VolumeState};
 use crate::tui::visibility::DeviceVisibility;
 
 pub const OUTPUT_CHANNELS: [Channel; 4] =
@@ -18,6 +18,7 @@ pub enum FocusPane {
     Output,
     Input,
     Devices,
+    Mixer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +182,7 @@ pub struct TuiApp {
     pub focus: FocusPane,
     pub output_selected: usize,
     pub device_selected: usize,
+    pub mixer_channel: MixerChannel,
     pub snapshot: Option<Snapshot>,
     pub picker: Option<Picker>,
     visibility: DeviceVisibility,
@@ -202,6 +204,7 @@ impl TuiApp {
             focus: FocusPane::Output,
             output_selected: 0,
             device_selected: 0,
+            mixer_channel: MixerChannel::Master,
             snapshot: None,
             picker: None,
             visibility,
@@ -217,7 +220,7 @@ impl TuiApp {
                 Some(RouteTarget::OUTPUT[self.output_selected.min(RouteTarget::OUTPUT.len() - 1)])
             }
             FocusPane::Input => Some(RouteTarget::INPUT),
-            FocusPane::Devices => None,
+            FocusPane::Devices | FocusPane::Mixer => None,
         }
     }
 
@@ -260,6 +263,18 @@ impl TuiApp {
             .as_ref()
             .map(|snapshot| snapshot.devices.as_slice())
             .unwrap_or_default()
+    }
+
+    pub fn mixer_state(&self) -> Option<&VolumeState> {
+        self.snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.volume(self.mixer_channel))
+    }
+
+    pub fn mixer_error(&self) -> Option<&str> {
+        self.snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.volume_error.as_deref())
     }
 
     pub fn device_is_visible(&self, device_id: &str) -> bool {
@@ -312,31 +327,39 @@ impl TuiApp {
     async fn handle_main_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('1') => {
-                self.focus = FocusPane::Output;
+                self.set_focus(FocusPane::Output);
                 return;
             }
             KeyCode::Char('2') => {
-                self.focus = FocusPane::Input;
+                self.set_focus(FocusPane::Input);
                 return;
             }
             KeyCode::Char('3') => {
-                self.focus = FocusPane::Devices;
+                self.set_focus(FocusPane::Devices);
+                return;
+            }
+            KeyCode::Char('4') => {
+                self.set_focus(FocusPane::Mixer);
                 return;
             }
             KeyCode::Tab => {
-                self.focus = match self.focus {
+                let focus = match self.focus {
                     FocusPane::Output => FocusPane::Input,
                     FocusPane::Input => FocusPane::Devices,
-                    FocusPane::Devices => FocusPane::Output,
+                    FocusPane::Devices => FocusPane::Mixer,
+                    FocusPane::Mixer => FocusPane::Output,
                 };
+                self.set_focus(focus);
                 return;
             }
             KeyCode::BackTab => {
-                self.focus = match self.focus {
-                    FocusPane::Output => FocusPane::Devices,
+                let focus = match self.focus {
+                    FocusPane::Output => FocusPane::Mixer,
                     FocusPane::Input => FocusPane::Output,
                     FocusPane::Devices => FocusPane::Input,
+                    FocusPane::Mixer => FocusPane::Devices,
                 };
+                self.set_focus(focus);
                 return;
             }
             _ => {}
@@ -346,7 +369,25 @@ impl TuiApp {
             FocusPane::Output => self.handle_output_key(key).await,
             FocusPane::Input => self.handle_input_key(key).await,
             FocusPane::Devices => self.handle_devices_key(key).await,
+            FocusPane::Mixer => self.handle_mixer_key(key).await,
         }
+    }
+
+    fn set_focus(&mut self, focus: FocusPane) {
+        self.focus = focus;
+        match focus {
+            FocusPane::Output => self.sync_mixer_to_output(),
+            FocusPane::Input => self.mixer_channel = MixerChannel::Microphone,
+            FocusPane::Devices | FocusPane::Mixer => {}
+        }
+    }
+
+    fn sync_mixer_to_output(&mut self) {
+        self.mixer_channel =
+            match RouteTarget::OUTPUT[self.output_selected.min(RouteTarget::OUTPUT.len() - 1)] {
+                RouteTarget::AllOutputs => MixerChannel::Master,
+                RouteTarget::Channel(channel) => channel.into(),
+            };
     }
 
     async fn handle_output_key(&mut self, key: KeyEvent) {
@@ -354,14 +395,20 @@ impl TuiApp {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('j') | KeyCode::Down => {
                 self.output_selected = (self.output_selected + 1) % RouteTarget::OUTPUT.len();
+                self.sync_mixer_to_output();
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 self.output_selected = (self.output_selected + RouteTarget::OUTPUT.len() - 1)
                     % RouteTarget::OUTPUT.len();
+                self.sync_mixer_to_output();
             }
-            KeyCode::Char('g') | KeyCode::Home => self.output_selected = 0,
+            KeyCode::Char('g') | KeyCode::Home => {
+                self.output_selected = 0;
+                self.sync_mixer_to_output();
+            }
             KeyCode::Char('G') | KeyCode::End => {
                 self.output_selected = RouteTarget::OUTPUT.len() - 1;
+                self.sync_mixer_to_output();
             }
             KeyCode::Char('r') => {
                 self.status = StatusLine::info("Refreshing…");
@@ -418,6 +465,58 @@ impl TuiApp {
             }
             KeyCode::Char('?') => self.open_help(Mode::Channels),
             _ => {}
+        }
+    }
+
+    async fn handle_mixer_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Char(']') | KeyCode::Right => {
+                self.adjust_mixer(5.0).await
+            }
+            KeyCode::Char('-') | KeyCode::Char('[') | KeyCode::Left => {
+                self.adjust_mixer(-5.0).await
+            }
+            KeyCode::Char('m') => self.toggle_mixer().await,
+            KeyCode::Char('r') => {
+                self.status = StatusLine::info("Refreshing…");
+                self.refresh().await;
+            }
+            KeyCode::Char('?') => self.open_help(Mode::Channels),
+            _ => {}
+        }
+    }
+
+    async fn adjust_mixer(&mut self, delta: f64) {
+        let channel = self.mixer_channel;
+        match self
+            .app
+            .change_volumes(&[channel], VolumeChange::Relative(delta))
+            .await
+        {
+            Ok(states) => {
+                let percent = states[0].percent();
+                self.refresh().await;
+                self.status =
+                    StatusLine::info(format!("{} volume: {percent:.0}%", channel.display_name()));
+            }
+            Err(err) => self.status = StatusLine::error(err.to_string()),
+        }
+    }
+
+    async fn toggle_mixer(&mut self) {
+        let channel = self.mixer_channel;
+        match self.app.change_mutes(&[channel], MuteChange::Toggle).await {
+            Ok(states) => {
+                let muted = states[0].muted;
+                self.refresh().await;
+                self.status = StatusLine::info(format!(
+                    "{} {}",
+                    channel.display_name(),
+                    if muted { "muted" } else { "unmuted" }
+                ));
+            }
+            Err(err) => self.status = StatusLine::error(err.to_string()),
         }
     }
 

@@ -3,11 +3,12 @@
 mod common;
 
 use clap::Parser;
-use sonarctl::cli::{Cli, Command, parse_channels};
+use sonarctl::app::VolumeChange;
+use sonarctl::cli::{Cli, Command, parse_channels, parse_mixer_channels, parse_volume_change};
 use sonarctl::output;
-use sonarctl::sonar::models::Channel;
+use sonarctl::sonar::models::{Channel, MixerChannel};
 
-use common::{fixture_devices, fixture_routes};
+use common::{fixture_devices, fixture_routes, fixture_volumes};
 
 fn parse(args: &[&str]) -> Cli {
     Cli::try_parse_from(args).expect("valid arguments")
@@ -85,6 +86,48 @@ fn parses_channel_lists() {
 }
 
 #[test]
+fn parses_mixer_commands_and_values() {
+    assert_eq!(
+        parse_mixer_channels("master,chat,mic").unwrap(),
+        vec![
+            MixerChannel::Master,
+            MixerChannel::Chat,
+            MixerChannel::Microphone
+        ]
+    );
+    assert_eq!(
+        parse_mixer_channels("all").unwrap(),
+        MixerChannel::ALL.to_vec()
+    );
+    assert_eq!(
+        parse_volume_change("75%").unwrap(),
+        VolumeChange::Absolute(75.0)
+    );
+    assert_eq!(
+        parse_volume_change("+5").unwrap(),
+        VolumeChange::Relative(5.0)
+    );
+    assert_eq!(
+        parse_volume_change("-5").unwrap(),
+        VolumeChange::Relative(-5.0)
+    );
+    assert!(parse_volume_change("loud").is_err());
+
+    assert!(matches!(
+        parse(&["sonarctl", "volume", "game", "-5"]).command,
+        Some(Command::Volume(_))
+    ));
+    assert!(matches!(
+        parse(&["sonarctl", "mute", "chat", "toggle"]).command,
+        Some(Command::Mute(_))
+    ));
+    assert!(matches!(
+        parse(&["sonarctl", "unmute", "all", "--json"]).command,
+        Some(Command::Unmute(_))
+    ));
+}
+
+#[test]
 fn status_output_is_a_plain_table() {
     let text = output::status_text(&fixture_routes());
     let lines: Vec<&str> = text.lines().collect();
@@ -154,4 +197,17 @@ fn json_output_has_a_stable_schema() {
     let rendered = output::json_line(&value);
     assert!(rendered.ends_with('\n'));
     serde_json::from_str::<serde_json::Value>(&rendered).expect("valid JSON");
+
+    let volumes = output::volumes_json(&fixture_volumes());
+    assert_eq!(volumes["channels"][0]["channel"], "master");
+    assert_eq!(volumes["channels"][0]["volume"], 80.0);
+    assert_eq!(volumes["channels"][2]["muted"], true);
+}
+
+#[test]
+fn volume_output_is_a_plain_table() {
+    let text = output::volumes_text(&fixture_volumes());
+    assert!(text.starts_with("CHANNEL     VOLUME  STATE\n"));
+    assert!(text.contains("Master      80%     unmuted"));
+    assert!(text.contains("Chat        75%     muted"));
 }

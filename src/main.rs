@@ -6,8 +6,11 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use sonarctl::app::{App, DeviceSelector};
-use sonarctl::cli::{Cli, Command, ConfigCommand, DevicesArgs, SetArgs, parse_channels};
+use sonarctl::app::{App, DeviceSelector, MuteChange};
+use sonarctl::cli::{
+    Cli, Command, ConfigCommand, DevicesArgs, MixerChannelsArgs, MuteAction, MuteArgs, SetArgs,
+    VolumeArgs, parse_channels, parse_mixer_channels, parse_volume_change,
+};
 use sonarctl::config::Config;
 use sonarctl::doctor;
 use sonarctl::error::{Error, Result, exit_code};
@@ -91,6 +94,9 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Devices(args)) => run_devices(&cli, args).await,
         Some(Command::Get { channel, json }) => run_get(&cli, channel, *json).await,
         Some(Command::Set(args)) => run_set(&cli, args).await,
+        Some(Command::Volume(args)) => run_volume(&cli, args).await,
+        Some(Command::Mute(args)) => run_mute(&cli, args).await,
+        Some(Command::Unmute(args)) => run_unmute(&cli, args).await,
         Some(Command::Config { command }) => run_config(command),
     }
 }
@@ -155,6 +161,58 @@ async fn run_set(cli: &Cli, args: &SetArgs) -> Result<()> {
         print(&output::set_text(channel, &device, unicode))?;
     }
     Ok(())
+}
+
+async fn run_volume(cli: &Cli, args: &VolumeArgs) -> Result<()> {
+    let app = build_app(cli)?;
+    let states = match (&args.channel, &args.value) {
+        (None, None) => app.volumes().await?,
+        (None, Some(_)) => {
+            return Err(Error::InvalidArguments(
+                "A channel is required when changing volume.".to_string(),
+            ));
+        }
+        (Some(channels), None) => {
+            let channels = parse_mixer_channels(channels)?;
+            let mut states = Vec::with_capacity(channels.len());
+            for channel in channels {
+                states.push(app.volume(channel).await?);
+            }
+            states
+        }
+        (Some(channels), Some(value)) => {
+            let channels = parse_mixer_channels(channels)?;
+            app.change_volumes(&channels, parse_volume_change(value)?)
+                .await?
+        }
+    };
+    print_volumes(&states, args.json)
+}
+
+async fn run_mute(cli: &Cli, args: &MuteArgs) -> Result<()> {
+    let app = build_app(cli)?;
+    let channels = parse_mixer_channels(&args.channels)?;
+    let change = match args.action {
+        MuteAction::Mute => MuteChange::Set(true),
+        MuteAction::Toggle => MuteChange::Toggle,
+    };
+    let states = app.change_mutes(&channels, change).await?;
+    print_volumes(&states, args.json)
+}
+
+async fn run_unmute(cli: &Cli, args: &MixerChannelsArgs) -> Result<()> {
+    let app = build_app(cli)?;
+    let channels = parse_mixer_channels(&args.channels)?;
+    let states = app.change_mutes(&channels, MuteChange::Set(false)).await?;
+    print_volumes(&states, args.json)
+}
+
+fn print_volumes(states: &[sonarctl::sonar::models::VolumeState], json: bool) -> Result<()> {
+    if json {
+        print(&output::json_line(&output::volumes_json(states)))
+    } else {
+        print(&output::volumes_text(states))
+    }
 }
 
 fn run_config(command: &ConfigCommand) -> Result<()> {

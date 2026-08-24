@@ -11,7 +11,9 @@ use sonarctl::app::App;
 use sonarctl::config::Config;
 use sonarctl::error::{Error, Result};
 use sonarctl::sonar::backend::SonarBackend;
-use sonarctl::sonar::models::{AudioDevice, Channel, Route, parse_devices};
+use sonarctl::sonar::models::{
+    AudioDevice, Channel, MixerChannel, Route, VolumeState, parse_classic_volumes, parse_devices,
+};
 use sonarctl::sonar::routing::{parse_routes, resolve_route_names};
 
 /// Absolute path of a fixture file.
@@ -47,12 +49,21 @@ pub fn fixture_routes() -> Vec<Route> {
     routes
 }
 
+pub fn fixture_volumes() -> Vec<VolumeState> {
+    parse_classic_volumes(&fixture_json("volumeSettingsClassic.json"))
+        .expect("fixture volumes parse")
+}
+
 /// Backend backed by fixtures, recording every mutation.
 pub struct MockBackend {
     devices: Vec<AudioDevice>,
     routes: Mutex<Vec<Route>>,
+    volumes: Mutex<Vec<VolumeState>>,
     pub calls: Mutex<Vec<(Channel, String)>>,
+    pub volume_calls: Mutex<Vec<(MixerChannel, f64)>>,
+    pub mute_calls: Mutex<Vec<(MixerChannel, bool)>>,
     fail_set: bool,
+    fail_volumes: bool,
     fail_once_channel: Mutex<Option<Channel>>,
 }
 
@@ -61,8 +72,12 @@ impl MockBackend {
         MockBackend {
             devices: fixture_devices(),
             routes: Mutex::new(fixture_routes()),
+            volumes: Mutex::new(fixture_volumes()),
             calls: Mutex::new(Vec::new()),
+            volume_calls: Mutex::new(Vec::new()),
+            mute_calls: Mutex::new(Vec::new()),
             fail_set: false,
+            fail_volumes: false,
             fail_once_channel: Mutex::new(None),
         }
     }
@@ -77,6 +92,13 @@ impl MockBackend {
     pub fn failing_after_change_once_on(channel: Channel) -> Self {
         MockBackend {
             fail_once_channel: Mutex::new(Some(channel)),
+            ..MockBackend::new()
+        }
+    }
+
+    pub fn volume_failing() -> Self {
+        MockBackend {
+            fail_volumes: true,
             ..MockBackend::new()
         }
     }
@@ -109,6 +131,13 @@ impl SonarBackend for MockBackend {
         Ok(routes)
     }
 
+    async fn volumes(&self) -> Result<Vec<VolumeState>> {
+        if self.fail_volumes {
+            return Err(Error::unexpected("mock classic mixer unavailable"));
+        }
+        Ok(self.volumes.lock().unwrap().clone())
+    }
+
     async fn set_route(&self, channel: Channel, device_id: &str) -> Result<()> {
         self.calls
             .lock()
@@ -134,6 +163,30 @@ impl SonarBackend for MockBackend {
         if fail_after_change {
             return Err(Error::unexpected("mock verification failed after mutation"));
         }
+        Ok(())
+    }
+
+    async fn set_volume(&self, channel: MixerChannel, volume: f64) -> Result<()> {
+        self.volume_calls.lock().unwrap().push((channel, volume));
+        self.volumes
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|state| state.channel == channel)
+            .expect("fixture volume channel")
+            .volume = volume;
+        Ok(())
+    }
+
+    async fn set_muted(&self, channel: MixerChannel, muted: bool) -> Result<()> {
+        self.mute_calls.lock().unwrap().push((channel, muted));
+        self.volumes
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|state| state.channel == channel)
+            .expect("fixture volume channel")
+            .muted = muted;
         Ok(())
     }
 }
