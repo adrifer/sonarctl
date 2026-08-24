@@ -184,10 +184,11 @@ otherwise, so aliases survive most hardware re-enumerations.
 │ > All Outputs  Mixed           ││ 80%  unmuted                    │
 │   Game         Headphones      ││ ████████████████░░░░           │
 │   Chat         Headphones      │├ [3] Devices ───────────────────┤
-│   Media        Speakers        ││ > [x] Playback  Headphones     │
-│   Aux          Speakers        ││   [x] Playback  Speakers       │
-├ [2] Input routing ─────────────┤│   [ ] Playback  HDMI Display   │
-│   Microphone   Shure MV7       ││   [x] Capture   Shure MV7      │
+│   Media        Speakers        ││ ── OUTPUT DEVICES ──           │
+│   Aux          Speakers        ││ > [x] Headphones               │
+├ [2] Input routing ─────────────┤│   [x] Speakers                 │
+│   Microphone   Shure MV7       ││ ── INPUT DEVICES ──            │
+│                                ││   [x] Shure MV7                 │
 └────────────────────────────────┘└─────────────────────────────────┘
  [1] Output  [2] Input  [3] Devices  │  [/] volume  m mute  │  ? help  q quit
 ```
@@ -214,7 +215,8 @@ to focus a numbered pane directly; `Tab` cycles focus.
 | `r` | refresh | refresh | — |
 | `?` | help | help | help |
 
-The Devices pane controls which physical devices appear in route pickers. Toggled visibility is
+The Devices pane groups physical playback hardware under **Output devices** and capture hardware
+under **Input devices**. It controls which devices appear in route pickers. Toggled visibility is
 stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable
 hardware in Windows.
 

@@ -6,6 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Gauge, List, ListItem, ListState, Paragraph, Wrap};
 
+use crate::sonar::models::DeviceRole;
 use crate::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 
 const HELP_TEXT: &str = "\
@@ -172,28 +173,48 @@ fn draw_input_routing(frame: &mut Frame, app: &TuiApp, area: Rect) {
 }
 
 fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
-    let items: Vec<ListItem> = app
-        .devices()
-        .iter()
-        .map(|device| {
+    let mut items = Vec::new();
+    let mut selected_item = None;
+    for (role, heading) in [
+        (DeviceRole::Playback, "OUTPUT DEVICES"),
+        (DeviceRole::Capture, "INPUT DEVICES"),
+        (DeviceRole::Unknown, "OTHER DEVICES"),
+    ] {
+        let group: Vec<_> = app
+            .devices()
+            .iter()
+            .enumerate()
+            .filter(|(_, device)| device.role == role)
+            .collect();
+        if group.is_empty() {
+            continue;
+        }
+        items.push(ListItem::new(Line::styled(
+            format!("── {heading} ──"),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for (device_index, device) in group {
+            if app.focus == FocusPane::Devices && device_index == app.device_selected {
+                selected_item = Some(items.len());
+            }
             let marker = if app.device_is_visible(&device.id) {
                 "[x]"
             } else {
                 "[ ]"
             };
-            ListItem::new(Line::from(vec![
+            items.push(ListItem::new(Line::from(vec![
                 Span::styled(
-                    format!("{marker} {:<9}", device.role.label()),
+                    format!("{marker} "),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(&device.name),
-            ]))
-        })
-        .collect();
-    let mut state = ListState::default();
-    if !items.is_empty() && app.focus == FocusPane::Devices {
-        state.select(Some(app.device_selected.min(items.len() - 1)));
+            ])));
+        }
     }
+    let mut state = ListState::default();
+    state.select(selected_item);
     frame.render_stateful_widget(
         List::new(items)
             .block(Block::bordered().title(" [3] Devices ").border_style(

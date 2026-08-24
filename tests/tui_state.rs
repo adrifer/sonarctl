@@ -2,11 +2,14 @@
 
 mod common;
 
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use sonarctl::config::Config;
 use sonarctl::sonar::backend::SonarBackend;
 use sonarctl::sonar::models::{Channel, MixerChannel};
 use sonarctl::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 use sonarctl::tui::event::{Key, KeyCode, KeyModifiers};
+use sonarctl::tui::ui;
 
 use common::{device_id, mock_app};
 
@@ -40,6 +43,28 @@ async fn mixer_api_failure_does_not_disable_routing_panes() {
     assert!(tui.mixer_state().is_none());
     assert!(tui.mixer_error().is_some());
     assert!(!tui.status.is_error);
+}
+
+#[tokio::test]
+async fn devices_render_in_separate_output_and_input_sections() {
+    let (tui, _) = started().await;
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).expect("terminal");
+    terminal
+        .draw(|frame| ui::draw(frame, &tui))
+        .expect("draw dashboard");
+
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    let output = rendered.find("OUTPUT DEVICES").expect("output heading");
+    let input = rendered.find("INPUT DEVICES").expect("input heading");
+    assert!(output < input);
+    assert!(rendered.contains("Arctis Nova Pro Wireless"));
+    assert!(rendered.contains("Shure MV7"));
 }
 
 #[tokio::test]
