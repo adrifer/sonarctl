@@ -1,12 +1,13 @@
 # sonarctl
 
-A small CLI and TUI for controlling **SteelSeries Sonar** routing, volume, and mute state from a
-terminal.
+A small CLI and TUI for controlling **SteelSeries Sonar** device routing, application routing,
+volume, and mute state from a terminal.
 
 ```bash
 sonarctl status
 sonarctl devices
 sonarctl set game headphones
+sonarctl app set Discord.exe chat
 sonarctl volume game 75
 sonarctl mute chat toggle
 sonarctl
@@ -16,15 +17,14 @@ sonarctl
 
 `sonarctl` is a lightweight client for Sonar's local HTTP API. It inspects and changes which
 physical playback/capture device each Sonar virtual channel (Game, Chat, Media, Aux, Microphone)
-is routed to, and controls classic-mode channel volume and mute state — without opening the
-SteelSeries GG window.
+is routed to, routes current Windows application audio sessions among output channels, and
+controls classic-mode channel volume and mute state — without opening the SteelSeries GG window.
 
 ## What sonarctl is not
 
 It is **not** an audio driver, a virtual audio device, or a replacement for the Sonar audio engine.
-SteelSeries GG and Sonar remain installed and running; `sonarctl` only tells Sonar which physical
-endpoint to use. It does not touch EQ, ChatMix, spatial audio, per-application routing or Windows
-default devices.
+SteelSeries GG and Sonar remain installed and running; `sonarctl` only controls Sonar. It does not
+touch EQ, ChatMix, spatial audio, or Windows default devices.
 
 ## Requirements
 
@@ -74,8 +74,11 @@ From WSL, `just install` cross-compiles and installs everything (see
 sonarctl doctor            # check the SteelSeries GG / Sonar connection
 sonarctl status            # show the current routing
 sonarctl devices           # list playback and capture devices
+sonarctl apps              # list current application audio sessions
 sonarctl get game          # print the device the Game channel uses
 sonarctl set game headphones
+sonarctl app set Discord.exe chat
+sonarctl app set --pid 1234 media
 sonarctl volume             # show mixer volume and mute state
 sonarctl volume game -5    # lower Game by 5 percentage points
 sonarctl mute chat toggle
@@ -106,6 +109,9 @@ Game → LG TV
 | `sonarctl` | Open the TUI (same as `sonarctl tui`) |
 | `sonarctl status [--json]` | Current device for every channel |
 | `sonarctl devices [--playback\|--capture] [--json]` | Physical audio devices known to Sonar |
+| `sonarctl apps [--json]` | Current Windows application audio sessions and output channels |
+| `sonarctl app set <name> <channel> [--json]` | Route an application by executable/display name |
+| `sonarctl app set --pid <pid> <channel> [--json]` | Route one exact current process |
 | `sonarctl get <channel> [--json]` | Device used by one channel |
 | `sonarctl set <channel[,channel…]> <device>` | Route one or more channels |
 | `sonarctl set <channel> --id "<device-id>"` | Route using an exact device id |
@@ -119,6 +125,12 @@ Channels are `game` (alias `gaming`), `chat`, `media`, `aux` and `microphone` (a
 Mixer commands also accept `master`; multi-channel mute commands and `volume all` accept `all`.
 Volume is expressed as `0`–`100`. A leading `+` or `-` makes the value relative, and invalid
 out-of-range changes are rejected rather than clamped.
+
+Application destinations are `game`, `chat`, `media`, and `aux`; application routing does not
+apply to the Microphone channel. Name matching is case-insensitive, accepts a trailing `.exe`, and
+prefers exact matches before unique substrings. Ambiguous names are never guessed: use the PID
+shown by `sonarctl apps`. PIDs are transient and are deliberately not stored in configuration; if
+the process exits or restarts, list sessions again and use its new PID.
 
 Global flags:
 
@@ -188,39 +200,45 @@ otherwise, so aliases survive most hardware re-enumerations.
 │   Aux          Speakers            ││                                │
 ├ [2] Input routing ─────────────────┤│                                │
 │   Microphone   Shure MV7           ││                                │
-├ [3] Devices ───────────────────────┤│                                │
-│ ── OUTPUT DEVICES ──               ││                                │
-│ > [x] Headphones                   ││                                │
-│   [x] Speakers                     ││                                │
-│ ── INPUT DEVICES ──                ││                                │
-│   [x] Shure MV7                    ││                                │
+├ [3] [Applications] Devices ────────┤│ Applications                   │
+│ > Discord         Game    Active   ││ Discord  PID 4820              │
+│   Spotify         Media   Active   ││ Spotify  PID 9012              │
+│   Microsoft Edge  Media   Idle     ││                                │
 └────────────────────────────────────┘└────────────────────────────────┘
- [1] Output  [2] Input  [3] Devices  │  h/l volume  m mute  │  ? help  q quit
+ [1] Output  [2] Input  [3] Applications/Devices  │  ? help  q quit
 ```
 
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
 numbered Input pane. Channel details follow the selected output route (with `All Outputs` mapped to
 Master) or Microphone when Input is selected. The panel does not need focus: press `h`/`l` or
 `[`/`]` while a route is selected to decrease or increase its volume by 5%, and `m` to toggle mute.
-Press `1`, `2`, or `3` to focus a numbered pane directly; `Tab` cycles focus.
+Press `1`, `2`, or `3` to focus a numbered pane directly; `Tab` cycles focus. Pane 3 opens on
+**Applications** and also contains a **Devices** tab. While pane 3 is focused, use `h`/`l`,
+`[`/`]`, or `←`/`→` to switch tabs (`a` and `d` select one directly). This is contextual: those
+same bracket and Vim keys still change volume while Output or Input is focused.
 
-| Key | Output/Input panes | Devices pane | Device picker |
-| --- | --- | --- | --- |
-| `1` / `2` / `3` | focus numbered pane | focus numbered pane | — |
-| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | — |
-| `j` / `↓`, `k` / `↑` | select route | select device | select device |
-| `g` / `G` | first / last route | first / last device | first / last device |
-| `Enter` | open picker | toggle picker visibility | apply |
-| `l` / `]` | increase selected volume 5% | — | — |
-| `h` / `[` | decrease selected volume 5% | — | — |
-| `m` | toggle selected mute | — | — |
-| `Space` | — | toggle picker visibility | — |
-| `/` | — | — | filter |
-| `Esc` / `q` | quit | quit | cancel |
-| `r` | refresh | refresh | — |
-| `?` | help | help | help |
+| Key | Output/Input panes | Applications tab | Devices tab | Picker |
+| --- | --- | --- | --- | --- |
+| `1` / `2` / `3` | focus numbered pane | focus numbered pane | focus numbered pane | — |
+| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | cycle pane focus | — |
+| `j` / `↓`, `k` / `↑` | select route | select application | select device | select item |
+| `g` / `G` | first / last route | first / last application | first / last device | first / last item |
+| `Enter` | open device picker | open channel picker | toggle picker visibility | apply |
+| `l` / `]`, `h` / `[` | change volume 5% | switch tabs | switch tabs | — |
+| `a` / `d` | — | select Applications / Devices | select Applications / Devices | — |
+| `m` | toggle selected mute | — | — | — |
+| `Space` | — | — | toggle picker visibility | — |
+| `/` | — | — | — | filter device picker |
+| `Esc` / `q` | quit | quit | quit | cancel |
+| `r` | refresh | refresh | refresh | — |
+| `?` | help | help | help | help |
 
-The Devices pane groups physical playback hardware under **Output devices** and capture hardware
+Selecting an application changes the right pane to **Application details**; `Enter` opens a picker
+for Game, Chat, Media, or Aux. When Output is selected, **Channel details** lists applications
+assigned to that channel. `All Outputs` lists every routed output application with its channel;
+Microphone explains that application routing is output-only.
+
+The Devices tab groups physical playback hardware under **Output devices** and capture hardware
 under **Input devices**. It controls which devices appear in route pickers. Toggled visibility is
 stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable
 hardware in Windows.
@@ -233,6 +251,8 @@ always restored — on quit, `Ctrl+C`, errors and panics.
 ```bash
 sonarctl status --json
 sonarctl devices --json
+sonarctl apps --json
+sonarctl app set --pid 1234 media --json
 sonarctl get game --json
 sonarctl volume --json
 sonarctl mute chat toggle --json
@@ -249,6 +269,9 @@ sonarctl mute chat toggle --json
 ```
 
 Output is plain text with no ANSI styling, so `DEVICE=$(sonarctl get game)` works as expected.
+Application JSON uses stable `process_id`, `process_name`, `display_name`, `channel`, `activity`,
+and `routing_error` fields under an `applications` array. The mutation command returns the same
+schema containing the changed application.
 
 ## Exit codes
 
@@ -337,7 +360,8 @@ src/
 │   ├── backend.rs   SonarBackend trait, rediscovery and retry
 │   ├── client.rs    HTTP clients for GG and Sonar
 │   ├── discovery.rs coreProps.json, /subApps, locality checks
-│   ├── models.rs    Channel, AudioDevice, Route, VolumeState
+│   ├── applications.rs application session parsing and routing paths
+│   ├── models.rs    Channel, device, route, mixer and application models
 │   └── routing.rs   channel ↔ API id mapping, URL encoding
 ├── platform/        Windows paths
 └── tui/             ratatui interface (app state, events, rendering)
@@ -349,9 +373,9 @@ CLI and TUI both call the application layer; only `src/sonar/` knows about Steel
 
 `cargo test` runs entirely offline using JSON fixtures in `tests/fixtures/` and a mock HTTP server
 (`wiremock`). Covered: coreProps parsing, GG/Sonar discovery, device and route parsing, virtual
-device filtering, URL encoding, verified route/volume/mute mutations, malformed payloads, Sonar
-port changes and rediscovery, configuration, device matching and aliases, CLI parsing, rendered
-output and TUI state transitions.
+device filtering, URL encoding, application-session collapsing, verified route/application/
+volume/mute mutations, malformed payloads, Sonar port changes and rediscovery, configuration,
+device and application matching, CLI parsing, rendered output and TUI state transitions.
 
 Tests against a real installation are opt-in:
 

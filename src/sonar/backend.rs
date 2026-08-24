@@ -8,7 +8,9 @@ use tokio::sync::Mutex;
 use crate::error::Result;
 use crate::sonar::client::SonarClient;
 use crate::sonar::discovery::DiscoveryOptions;
-use crate::sonar::models::{AudioDevice, Channel, MixerChannel, Route, VolumeState};
+use crate::sonar::models::{
+    ApplicationSession, AudioDevice, Channel, MixerChannel, Route, VolumeState,
+};
 use crate::sonar::routing::resolve_route_names;
 
 /// Everything the application layer needs from Sonar.
@@ -23,6 +25,9 @@ pub trait SonarBackend: Send + Sync {
     /// Current classic-mode mixer state.
     async fn volumes(&self) -> Result<Vec<VolumeState>>;
 
+    /// Current non-expired Windows render audio sessions.
+    async fn applications(&self) -> Result<Vec<ApplicationSession>>;
+
     /// Point a channel at a device.
     async fn set_route(&self, channel: Channel, device_id: &str) -> Result<()>;
 
@@ -31,6 +36,9 @@ pub trait SonarBackend: Send + Sync {
 
     /// Set one classic-mode mixer mute state.
     async fn set_muted(&self, channel: MixerChannel, muted: bool) -> Result<()>;
+
+    /// Route one Windows process to a Sonar output channel.
+    async fn set_application_route(&self, process_id: u32, channel: Channel) -> Result<()>;
 }
 
 /// Creates connected Sonar clients. Abstracted so tests can simulate restarts.
@@ -147,6 +155,11 @@ impl SonarBackend for SonarHttpBackend {
             .await
     }
 
+    async fn applications(&self) -> Result<Vec<ApplicationSession>> {
+        self.run(|client| async move { client.applications().await })
+            .await
+    }
+
     async fn set_route(&self, channel: Channel, device_id: &str) -> Result<()> {
         self.run(|client| {
             let device_id = device_id.to_string();
@@ -163,5 +176,12 @@ impl SonarBackend for SonarHttpBackend {
     async fn set_muted(&self, channel: MixerChannel, muted: bool) -> Result<()> {
         self.run(move |client| async move { client.set_muted(channel, muted).await })
             .await
+    }
+
+    async fn set_application_route(&self, process_id: u32, channel: Channel) -> Result<()> {
+        self.run(
+            move |client| async move { client.set_application_route(process_id, channel).await },
+        )
+        .await
     }
 }

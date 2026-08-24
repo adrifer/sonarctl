@@ -5,7 +5,7 @@
 
 use serde_json::{Value, json};
 
-use crate::sonar::models::{AudioDevice, Channel, Route, VolumeState};
+use crate::sonar::models::{ApplicationSession, AudioDevice, Channel, Route, VolumeState};
 
 /// Render `sonarctl status`.
 pub fn status_text(routes: &[Route]) -> String {
@@ -51,6 +51,45 @@ pub fn devices_json(devices: &[AudioDevice]) -> Value {
     json!({
         "devices": devices.iter().map(device_json).collect::<Vec<_>>(),
     })
+}
+
+/// Render `sonarctl apps`.
+pub fn applications_text(applications: &[ApplicationSession]) -> String {
+    if applications.is_empty() {
+        return "No application audio sessions found.\n".to_string();
+    }
+    table(
+        &["APPLICATION", "PID", "CHANNEL", "STATE"],
+        applications
+            .iter()
+            .map(|application| {
+                vec![
+                    application.label().to_string(),
+                    application.process_id.to_string(),
+                    application.route.display_name().to_string(),
+                    application.activity.display_name().to_string(),
+                ]
+            })
+            .collect(),
+    )
+}
+
+/// Stable JSON representation of application audio sessions.
+pub fn applications_json(applications: &[ApplicationSession]) -> Value {
+    json!({
+        "applications": applications.iter().map(application_json).collect::<Vec<_>>(),
+    })
+}
+
+/// Render a verified application route mutation.
+pub fn application_set_text(application: &ApplicationSession, unicode: bool) -> String {
+    let arrow = if unicode { "→" } else { "->" };
+    format!(
+        "{} (PID {}) {arrow} {}\n",
+        application.label(),
+        application.process_id,
+        application.route.display_name()
+    )
 }
 
 /// Render `sonarctl get <channel>`.
@@ -128,6 +167,17 @@ fn device_json(device: &AudioDevice) -> Value {
         "name": device.name,
         "role": device.role.label().to_lowercase(),
         "enabled": device.enabled,
+    })
+}
+
+fn application_json(application: &ApplicationSession) -> Value {
+    json!({
+        "process_id": application.process_id,
+        "process_name": application.process_name,
+        "display_name": application.display_name,
+        "channel": application.route.as_str(),
+        "activity": application.activity.as_str(),
+        "routing_error": application.routing_error,
     })
 }
 

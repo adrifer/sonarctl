@@ -44,6 +44,19 @@ pub enum Command {
     /// List audio devices known to Sonar
     Devices(DevicesArgs),
 
+    /// List current Windows application audio sessions
+    Apps {
+        /// Machine readable output
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Inspect or change application audio routing
+    App {
+        #[command(subcommand)]
+        command: AppCommand,
+    },
+
     /// Print the device a channel is routed to
     Get {
         /// Channel name (game, chat, media, aux, microphone)
@@ -114,6 +127,29 @@ pub struct SetArgs {
     /// Exact Sonar device id
     #[arg(long, value_name = "DEVICE-ID")]
     pub id: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AppCommand {
+    /// Route an application to a Sonar output channel
+    Set(AppSetArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AppSetArgs {
+    /// Application name, or the destination channel when using --pid
+    pub selector: String,
+
+    /// Destination channel when selecting an application by name
+    pub channel: Option<String>,
+
+    /// Select the exact current process ID
+    #[arg(long, value_name = "PID")]
+    pub pid: Option<u32>,
+
+    /// Machine readable output
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

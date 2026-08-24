@@ -43,6 +43,14 @@ async fn sonar_server() -> MockServer {
         )
         .mount(&server)
         .await;
+    Mock::given(method("GET"))
+        .and(path("/AudioDeviceRouting"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(fixture("audioDeviceRouting.json"), "application/json"),
+        )
+        .mount(&server)
+        .await;
     server
 }
 
@@ -75,6 +83,51 @@ async fn reads_devices_and_routes_over_http() {
     assert_eq!(volumes[0].channel, MixerChannel::Master);
     assert_eq!(volumes[0].percent(), 80.0);
     assert!(volumes[2].muted);
+
+    let applications = client.applications().await.expect("applications");
+    assert_eq!(applications.len(), 5);
+}
+
+#[tokio::test]
+async fn set_application_route_encodes_target_and_verifies() {
+    let server = sonar_server().await;
+    Mock::given(method("PUT"))
+        .and(path("/AudioDeviceRouting/render/%7Bvirtual-game%7D/100"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server);
+    client
+        .set_application_route(100, Channel::Game)
+        .await
+        .expect("set application route");
+}
+
+#[tokio::test]
+async fn application_route_reports_stale_and_failed_verification() {
+    let server = sonar_server().await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/AudioDeviceRouting/render/.*$"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let client = client_for(&server);
+
+    assert!(matches!(
+        client
+            .set_application_route(999, Channel::Game)
+            .await
+            .unwrap_err(),
+        Error::ApplicationSessionStale { .. }
+    ));
+    assert!(matches!(
+        client
+            .set_application_route(100, Channel::Media)
+            .await
+            .unwrap_err(),
+        Error::ApplicationRouteVerificationFailed { .. }
+    ));
 }
 
 #[tokio::test]

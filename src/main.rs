@@ -6,10 +6,11 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use sonarctl::app::{App, DeviceSelector, MuteChange};
+use sonarctl::app::{App, ApplicationSelector, DeviceSelector, MuteChange};
 use sonarctl::cli::{
-    Cli, Command, ConfigCommand, DevicesArgs, MixerChannelsArgs, MuteAction, MuteArgs, SetArgs,
-    VolumeArgs, parse_channels, parse_mixer_channels, parse_volume_change,
+    AppCommand, AppSetArgs, Cli, Command, ConfigCommand, DevicesArgs, MixerChannelsArgs,
+    MuteAction, MuteArgs, SetArgs, VolumeArgs, parse_channels, parse_mixer_channels,
+    parse_volume_change,
 };
 use sonarctl::config::Config;
 use sonarctl::doctor;
@@ -92,6 +93,8 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Command::Doctor) => run_doctor(&cli).await,
         Some(Command::Status { json }) => run_status(&cli, *json).await,
         Some(Command::Devices(args)) => run_devices(&cli, args).await,
+        Some(Command::Apps { json }) => run_apps(&cli, *json).await,
+        Some(Command::App { command }) => run_app_command(&cli, command).await,
         Some(Command::Get { channel, json }) => run_get(&cli, channel, *json).await,
         Some(Command::Set(args)) => run_set(&cli, args).await,
         Some(Command::Volume(args)) => run_volume(&cli, args).await,
@@ -128,6 +131,62 @@ async fn run_devices(cli: &Cli, args: &DevicesArgs) -> Result<()> {
         print(&output::devices_text(&devices))?;
     }
     Ok(())
+}
+
+async fn run_apps(cli: &Cli, json: bool) -> Result<()> {
+    let app = build_app(cli)?;
+    let applications = app.applications().await?;
+    if json {
+        print(&output::json_line(&output::applications_json(
+            &applications,
+        )))
+    } else {
+        print(&output::applications_text(&applications))
+    }
+}
+
+async fn run_app_command(cli: &Cli, command: &AppCommand) -> Result<()> {
+    match command {
+        AppCommand::Set(args) => run_app_set(cli, args).await,
+    }
+}
+
+async fn run_app_set(cli: &Cli, args: &AppSetArgs) -> Result<()> {
+    let (selector, channel_name) = match (args.pid, &args.channel) {
+        (Some(process_id), None) => (
+            ApplicationSelector::ProcessId(process_id),
+            args.selector.as_str(),
+        ),
+        (Some(_), Some(_)) => {
+            return Err(Error::InvalidArguments(
+                "When using --pid, provide only the destination channel after the option."
+                    .to_string(),
+            ));
+        }
+        (None, Some(channel)) => (
+            ApplicationSelector::Query(args.selector.clone()),
+            channel.as_str(),
+        ),
+        (None, None) => {
+            return Err(Error::InvalidArguments(
+                "Provide an application name and destination channel, or use --pid <PID> <channel>."
+                    .to_string(),
+            ));
+        }
+    };
+    let channel: Channel = channel_name.parse()?;
+    let app = build_app(cli)?;
+    let application = app.set_application_route(&selector, channel).await?;
+    if args.json {
+        print(&output::json_line(&output::applications_json(&[
+            application,
+        ])))
+    } else {
+        print(&output::application_set_text(
+            &application,
+            std::io::stdout().is_terminal(),
+        ))
+    }
 }
 
 async fn run_get(cli: &Cli, channel: &str, json: bool) -> Result<()> {

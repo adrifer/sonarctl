@@ -194,6 +194,110 @@ impl VolumeState {
     }
 }
 
+/// Effective Sonar route for a Windows application process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApplicationRoute {
+    Game,
+    Chat,
+    Media,
+    Aux,
+    Unassigned,
+    Multiple,
+}
+
+impl ApplicationRoute {
+    pub fn from_channel(channel: Channel) -> Option<Self> {
+        match channel {
+            Channel::Game => Some(ApplicationRoute::Game),
+            Channel::Chat => Some(ApplicationRoute::Chat),
+            Channel::Media => Some(ApplicationRoute::Media),
+            Channel::Aux => Some(ApplicationRoute::Aux),
+            Channel::Microphone => None,
+        }
+    }
+
+    pub fn channel(self) -> Option<Channel> {
+        match self {
+            ApplicationRoute::Game => Some(Channel::Game),
+            ApplicationRoute::Chat => Some(Channel::Chat),
+            ApplicationRoute::Media => Some(Channel::Media),
+            ApplicationRoute::Aux => Some(Channel::Aux),
+            ApplicationRoute::Unassigned | ApplicationRoute::Multiple => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApplicationRoute::Game => "game",
+            ApplicationRoute::Chat => "chat",
+            ApplicationRoute::Media => "media",
+            ApplicationRoute::Aux => "aux",
+            ApplicationRoute::Unassigned => "unassigned",
+            ApplicationRoute::Multiple => "multiple",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ApplicationRoute::Game => "Game",
+            ApplicationRoute::Chat => "Chat",
+            ApplicationRoute::Media => "Media",
+            ApplicationRoute::Aux => "Aux",
+            ApplicationRoute::Unassigned => "Unassigned",
+            ApplicationRoute::Multiple => "Multiple",
+        }
+    }
+}
+
+/// Whether a Windows audio session is currently producing sound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApplicationActivity {
+    Active,
+    Inactive,
+    Unknown,
+}
+
+impl ApplicationActivity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApplicationActivity::Active => "active",
+            ApplicationActivity::Inactive => "inactive",
+            ApplicationActivity::Unknown => "unknown",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ApplicationActivity::Active => "Active",
+            ApplicationActivity::Inactive => "Idle",
+            ApplicationActivity::Unknown => "Unknown",
+        }
+    }
+}
+
+/// One running Windows process with a non-expired render audio session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ApplicationSession {
+    pub process_id: u32,
+    pub process_name: String,
+    pub display_name: String,
+    pub route: ApplicationRoute,
+    pub activity: ApplicationActivity,
+    pub routing_error: bool,
+}
+
+impl ApplicationSession {
+    pub fn label(&self) -> &str {
+        if self.display_name.is_empty() {
+            &self.process_name
+        } else {
+            &self.display_name
+        }
+    }
+}
+
 /// Direction of an audio endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

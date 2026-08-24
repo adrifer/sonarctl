@@ -70,6 +70,22 @@ pub enum Error {
     #[error("multiple devices match \"{query}\"")]
     AmbiguousDevice { query: String, matches: Vec<String> },
 
+    #[error("No active application matches \"{query}\".")]
+    ApplicationNotFound { query: String },
+
+    #[error("multiple applications match \"{query}\"")]
+    AmbiguousApplication { query: String, matches: Vec<String> },
+
+    #[error("Application process {process_id} is no longer available.")]
+    ApplicationSessionStale { process_id: u32 },
+
+    #[error("Sonar did not apply the application route change for process {process_id}.")]
+    ApplicationRouteVerificationFailed {
+        process_id: u32,
+        expected: String,
+        actual: Option<String>,
+    },
+
     #[error("Sonar did not apply the route change for {channel}.")]
     RouteVerificationFailed {
         channel: String,
@@ -101,9 +117,12 @@ impl Error {
             | SonarNotReady
             | SonarAddressMissing
             | SonarUnreachable { .. } => exit_code::SONAR_UNAVAILABLE,
-            UnexpectedApi { .. } | RouteVerificationFailed { .. } => exit_code::UNEXPECTED_API,
-            DeviceNotFound { .. } => exit_code::DEVICE_NOT_FOUND,
-            AmbiguousDevice { .. } => exit_code::AMBIGUOUS_DEVICE,
+            UnexpectedApi { .. }
+            | RouteVerificationFailed { .. }
+            | ApplicationSessionStale { .. }
+            | ApplicationRouteVerificationFailed { .. } => exit_code::UNEXPECTED_API,
+            DeviceNotFound { .. } | ApplicationNotFound { .. } => exit_code::DEVICE_NOT_FOUND,
+            AmbiguousDevice { .. } | AmbiguousApplication { .. } => exit_code::AMBIGUOUS_DEVICE,
             Config { .. } => exit_code::CONFIGURATION,
             Other(_) => exit_code::FAILURE,
         }
@@ -141,10 +160,12 @@ impl Error {
                 "Sonar may have restarted. Run `sonarctl doctor` to re-check the connection."
                     .to_string(),
             ),
-            UnexpectedApi { .. } | RouteVerificationFailed { .. } => {
+            UnexpectedApi { .. }
+            | RouteVerificationFailed { .. }
+            | ApplicationRouteVerificationFailed { .. } => {
                 Some("Run `sonarctl doctor -v` for details.".to_string())
             }
-            AmbiguousDevice { matches, .. } => {
+            AmbiguousDevice { matches, .. } | AmbiguousApplication { matches, .. } => {
                 let mut hint = String::new();
                 for name in matches {
                     hint.push_str(&format!("  {name}\n"));
@@ -154,6 +175,9 @@ impl Error {
             }
             DeviceNotFound { .. } => {
                 Some("Run `sonarctl devices` to list available devices.".to_string())
+            }
+            ApplicationNotFound { .. } | ApplicationSessionStale { .. } => {
+                Some("Run `sonarctl apps` to list current application sessions.".to_string())
             }
             Config { .. } => Some("Fix the configuration file and try again.".to_string()),
             _ => None,
@@ -174,6 +198,12 @@ impl Error {
                 expected, actual, ..
             } => Some(format!(
                 "expected device {expected}, Sonar reports {}",
+                actual.as_deref().unwrap_or("nothing")
+            )),
+            ApplicationRouteVerificationFailed {
+                expected, actual, ..
+            } => Some(format!(
+                "expected channel {expected}, Sonar reports {}",
                 actual.as_deref().unwrap_or("nothing")
             )),
             _ => None,

@@ -10,9 +10,11 @@ use serde_json::Value;
 use sonarctl::app::App;
 use sonarctl::config::Config;
 use sonarctl::error::{Error, Result};
+use sonarctl::sonar::applications::parse_application_routing;
 use sonarctl::sonar::backend::SonarBackend;
 use sonarctl::sonar::models::{
-    AudioDevice, Channel, MixerChannel, Route, VolumeState, parse_classic_volumes, parse_devices,
+    ApplicationRoute, ApplicationSession, AudioDevice, Channel, MixerChannel, Route, VolumeState,
+    parse_classic_volumes, parse_devices,
 };
 use sonarctl::sonar::routing::{parse_routes, resolve_route_names};
 
@@ -54,14 +56,22 @@ pub fn fixture_volumes() -> Vec<VolumeState> {
         .expect("fixture volumes parse")
 }
 
+pub fn fixture_applications() -> Vec<ApplicationSession> {
+    parse_application_routing(&fixture_json("audioDeviceRouting.json"))
+        .expect("fixture applications parse")
+        .sessions
+}
+
 /// Backend backed by fixtures, recording every mutation.
 pub struct MockBackend {
     devices: Vec<AudioDevice>,
     routes: Mutex<Vec<Route>>,
     volumes: Mutex<Vec<VolumeState>>,
+    pub applications: Mutex<Vec<ApplicationSession>>,
     pub calls: Mutex<Vec<(Channel, String)>>,
     pub volume_calls: Mutex<Vec<(MixerChannel, f64)>>,
     pub mute_calls: Mutex<Vec<(MixerChannel, bool)>>,
+    pub application_calls: Mutex<Vec<(u32, Channel)>>,
     fail_set: bool,
     fail_volumes: bool,
     fail_once_channel: Mutex<Option<Channel>>,
@@ -73,9 +83,11 @@ impl MockBackend {
             devices: fixture_devices(),
             routes: Mutex::new(fixture_routes()),
             volumes: Mutex::new(fixture_volumes()),
+            applications: Mutex::new(fixture_applications()),
             calls: Mutex::new(Vec::new()),
             volume_calls: Mutex::new(Vec::new()),
             mute_calls: Mutex::new(Vec::new()),
+            application_calls: Mutex::new(Vec::new()),
             fail_set: false,
             fail_volumes: false,
             fail_once_channel: Mutex::new(None),
@@ -138,6 +150,10 @@ impl SonarBackend for MockBackend {
         Ok(self.volumes.lock().unwrap().clone())
     }
 
+    async fn applications(&self) -> Result<Vec<ApplicationSession>> {
+        Ok(self.applications.lock().unwrap().clone())
+    }
+
     async fn set_route(&self, channel: Channel, device_id: &str) -> Result<()> {
         self.calls
             .lock()
@@ -187,6 +203,21 @@ impl SonarBackend for MockBackend {
             .find(|state| state.channel == channel)
             .expect("fixture volume channel")
             .muted = muted;
+        Ok(())
+    }
+
+    async fn set_application_route(&self, process_id: u32, channel: Channel) -> Result<()> {
+        self.application_calls
+            .lock()
+            .unwrap()
+            .push((process_id, channel));
+        let mut applications = self.applications.lock().unwrap();
+        let application = applications
+            .iter_mut()
+            .find(|application| application.process_id == process_id)
+            .ok_or(Error::ApplicationSessionStale { process_id })?;
+        application.route =
+            ApplicationRoute::from_channel(channel).expect("output application channel");
         Ok(())
     }
 }

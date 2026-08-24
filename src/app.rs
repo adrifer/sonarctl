@@ -7,7 +7,10 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::sonar::backend::SonarBackend;
-use crate::sonar::models::{AudioDevice, Channel, DeviceRole, MixerChannel, Route, VolumeState};
+use crate::sonar::models::{
+    ApplicationActivity, ApplicationRoute, ApplicationSession, AudioDevice, Channel, DeviceRole,
+    MixerChannel, Route, VolumeState,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VolumeChange {
@@ -30,6 +33,12 @@ pub enum DeviceSelector {
     Query(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplicationSelector {
+    ProcessId(u32),
+    Query(String),
+}
+
 /// One consistent view of Sonar state.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -37,6 +46,8 @@ pub struct Snapshot {
     pub routes: Vec<Route>,
     pub volumes: Vec<VolumeState>,
     pub volume_error: Option<String>,
+    pub applications: Vec<ApplicationSession>,
+    pub application_error: Option<String>,
 }
 
 impl Snapshot {
@@ -56,6 +67,14 @@ impl Snapshot {
 
     pub fn volume(&self, channel: MixerChannel) -> Option<&VolumeState> {
         self.volumes.iter().find(|state| state.channel == channel)
+    }
+
+    pub fn applications_for(&self, channel: Channel) -> Vec<&ApplicationSession> {
+        let route = ApplicationRoute::from_channel(channel);
+        self.applications
+            .iter()
+            .filter(|application| Some(application.route) == route)
+            .collect()
     }
 }
 
@@ -101,6 +120,12 @@ impl App {
         find_volume(self.volumes().await?, channel)
     }
 
+    pub async fn applications(&self) -> Result<Vec<ApplicationSession>> {
+        let mut applications = self.backend.applications().await?;
+        sort_applications(&mut applications);
+        Ok(applications)
+    }
+
     /// Current routing for one channel.
     pub async fn route(&self, channel: Channel) -> Result<Route> {
         self.routes()
@@ -123,11 +148,18 @@ impl App {
             Ok(volumes) => (volumes, None),
             Err(err) => (Vec::new(), Some(err.to_string())),
         };
+        let (mut applications, application_error) = match self.backend.applications().await {
+            Ok(applications) => (applications, None),
+            Err(err) => (Vec::new(), Some(err.to_string())),
+        };
+        sort_applications(&mut applications);
         Ok(Snapshot {
             devices,
             routes,
             volumes,
             volume_error,
+            applications,
+            application_error,
         })
     }
 
@@ -270,6 +302,40 @@ impl App {
             .collect())
     }
 
+    pub async fn resolve_application(
+        &self,
+        selector: &ApplicationSelector,
+    ) -> Result<ApplicationSession> {
+        resolve_application(selector, &self.applications().await?)
+    }
+
+    pub async fn set_application_route(
+        &self,
+        selector: &ApplicationSelector,
+        channel: Channel,
+    ) -> Result<ApplicationSession> {
+        let mut application = self.resolve_application(selector).await?;
+        let route = ApplicationRoute::from_channel(channel).ok_or_else(|| {
+            Error::InvalidArguments(
+                "Applications can only be routed to output channels.".to_string(),
+            )
+        })?;
+        self.backend
+            .set_application_route(application.process_id, channel)
+            .await?;
+        application.route = route;
+        Ok(application)
+    }
+
+    pub async fn set_application_route_by_pid(
+        &self,
+        process_id: u32,
+        channel: Channel,
+    ) -> Result<ApplicationSession> {
+        self.set_application_route(&ApplicationSelector::ProcessId(process_id), channel)
+            .await
+    }
+
     async fn rollback_volumes(&self, states: &[VolumeState]) -> Vec<String> {
         let mut failures = Vec::new();
         for state in states.iter().rev() {
@@ -289,6 +355,95 @@ impl App {
         }
         failures
     }
+}
+
+fn sort_applications(applications: &mut [ApplicationSession]) {
+    applications.sort_by(|left, right| {
+        application_activity_order(left.activity)
+            .cmp(&application_activity_order(right.activity))
+            .then_with(|| {
+                left.label()
+                    .to_ascii_lowercase()
+                    .cmp(&right.label().to_ascii_lowercase())
+            })
+            .then_with(|| left.process_id.cmp(&right.process_id))
+    });
+}
+
+fn application_activity_order(activity: ApplicationActivity) -> u8 {
+    match activity {
+        ApplicationActivity::Active => 0,
+        ApplicationActivity::Inactive => 1,
+        ApplicationActivity::Unknown => 2,
+    }
+}
+
+pub fn resolve_application(
+    selector: &ApplicationSelector,
+    applications: &[ApplicationSession],
+) -> Result<ApplicationSession> {
+    match selector {
+        ApplicationSelector::ProcessId(process_id) => applications
+            .iter()
+            .find(|application| application.process_id == *process_id)
+            .cloned()
+            .ok_or(Error::ApplicationSessionStale {
+                process_id: *process_id,
+            }),
+        ApplicationSelector::Query(query) => {
+            let normalized = normalize_application_name(query);
+            if normalized.is_empty() {
+                return Err(Error::InvalidArguments(
+                    "An application name is required.".to_string(),
+                ));
+            }
+            let exact = applications
+                .iter()
+                .filter(|application| {
+                    normalize_application_name(&application.process_name) == normalized
+                        || normalize_application_name(&application.display_name) == normalized
+                })
+                .collect::<Vec<_>>();
+            if let Some(application) = unique_application(&exact, query)? {
+                return Ok(application);
+            }
+            let partial = applications
+                .iter()
+                .filter(|application| {
+                    normalize_application_name(&application.process_name).contains(&normalized)
+                        || normalize_application_name(&application.display_name)
+                            .contains(&normalized)
+                })
+                .collect::<Vec<_>>();
+            unique_application(&partial, query)?.ok_or_else(|| Error::ApplicationNotFound {
+                query: query.to_string(),
+            })
+        }
+    }
+}
+
+fn unique_application(
+    matches: &[&ApplicationSession],
+    query: &str,
+) -> Result<Option<ApplicationSession>> {
+    match matches {
+        [] => Ok(None),
+        [application] => Ok(Some((*application).clone())),
+        _ => Err(Error::AmbiguousApplication {
+            query: query.to_string(),
+            matches: matches
+                .iter()
+                .map(|application| {
+                    format!("{} (PID {})", application.label(), application.process_id)
+                })
+                .collect(),
+        }),
+    }
+}
+
+fn normalize_application_name(value: &str) -> String {
+    let folded = value.trim().to_ascii_lowercase();
+    folded.strip_suffix(".exe").unwrap_or(&folded).to_string()
 }
 
 fn find_volume(states: Vec<VolumeState>, channel: MixerChannel) -> Result<VolumeState> {

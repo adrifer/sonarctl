@@ -7,7 +7,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::{App, MuteChange, Snapshot, VolumeChange};
 use crate::error::Error;
-use crate::sonar::models::{AudioDevice, Channel, DeviceRole, MixerChannel, VolumeState};
+use crate::sonar::models::{
+    ApplicationRoute, ApplicationSession, AudioDevice, Channel, DeviceRole, MixerChannel,
+    VolumeState,
+};
 use crate::tui::visibility::DeviceVisibility;
 
 pub const OUTPUT_CHANNELS: [Channel; 4] =
@@ -17,6 +20,12 @@ pub const OUTPUT_CHANNELS: [Channel; 4] =
 pub enum FocusPane {
     Output,
     Input,
+    Browser,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserTab {
+    Applications,
     Devices,
 }
 
@@ -57,7 +66,50 @@ impl RouteTarget {
 pub enum Mode {
     Channels,
     Picker,
+    ApplicationPicker,
     Help,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplicationPicker {
+    pub process_id: u32,
+    pub application_name: String,
+    pub current: ApplicationRoute,
+    pub selected: usize,
+}
+
+impl ApplicationPicker {
+    pub const CHANNELS: [Channel; 4] = [Channel::Game, Channel::Chat, Channel::Media, Channel::Aux];
+
+    fn new(application: &ApplicationSession) -> Self {
+        let selected = application
+            .route
+            .channel()
+            .and_then(|channel| {
+                Self::CHANNELS
+                    .iter()
+                    .position(|candidate| *candidate == channel)
+            })
+            .unwrap_or(0);
+        ApplicationPicker {
+            process_id: application.process_id,
+            application_name: application.label().to_string(),
+            current: application.route,
+            selected,
+        }
+    }
+
+    pub fn selected_channel(&self) -> Channel {
+        Self::CHANNELS[self.selected.min(Self::CHANNELS.len() - 1)]
+    }
+
+    fn next(&mut self) {
+        self.selected = (self.selected + 1) % Self::CHANNELS.len();
+    }
+
+    fn previous(&mut self) {
+        self.selected = (self.selected + Self::CHANNELS.len() - 1) % Self::CHANNELS.len();
+    }
 }
 
 /// Message shown on the status line.
@@ -179,11 +231,14 @@ pub struct TuiApp {
     pub mode: Mode,
     help_return_mode: Mode,
     pub focus: FocusPane,
+    pub browser_tab: BrowserTab,
     pub output_selected: usize,
+    pub application_selected: usize,
     pub device_selected: usize,
     pub mixer_channel: MixerChannel,
     pub snapshot: Option<Snapshot>,
     pub picker: Option<Picker>,
+    pub application_picker: Option<ApplicationPicker>,
     visibility: DeviceVisibility,
     pub status: StatusLine,
     pub reconnecting: bool,
@@ -201,11 +256,14 @@ impl TuiApp {
             mode: Mode::Channels,
             help_return_mode: Mode::Channels,
             focus: FocusPane::Output,
+            browser_tab: BrowserTab::Applications,
             output_selected: 0,
+            application_selected: 0,
             device_selected: 0,
             mixer_channel: MixerChannel::Master,
             snapshot: None,
             picker: None,
+            application_picker: None,
             visibility,
             status: StatusLine::default(),
             reconnecting: false,
@@ -219,7 +277,7 @@ impl TuiApp {
                 Some(RouteTarget::OUTPUT[self.output_selected.min(RouteTarget::OUTPUT.len() - 1)])
             }
             FocusPane::Input => Some(RouteTarget::INPUT),
-            FocusPane::Devices => None,
+            FocusPane::Browser => None,
         }
     }
 
@@ -264,6 +322,35 @@ impl TuiApp {
             .unwrap_or_default()
     }
 
+    pub fn applications(&self) -> &[ApplicationSession] {
+        self.snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.applications.as_slice())
+            .unwrap_or_default()
+    }
+
+    pub fn selected_application(&self) -> Option<&ApplicationSession> {
+        let applications = self.applications();
+        if applications.is_empty() {
+            None
+        } else {
+            applications.get(self.application_selected.min(applications.len() - 1))
+        }
+    }
+
+    pub fn applications_for(&self, channel: Channel) -> Vec<&ApplicationSession> {
+        self.snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.applications_for(channel))
+            .unwrap_or_default()
+    }
+
+    pub fn application_error(&self) -> Option<&str> {
+        self.snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.application_error.as_deref())
+    }
+
     pub fn mixer_state(&self) -> Option<&VolumeState> {
         self.snapshot
             .as_ref()
@@ -282,9 +369,23 @@ impl TuiApp {
 
     /// Fetch devices and routes from the application layer.
     pub async fn refresh(&mut self) {
+        let selected_process = self
+            .selected_application()
+            .map(|application| application.process_id);
         match self.app.snapshot().await {
             Ok(snapshot) => {
                 self.snapshot = Some(snapshot);
+                let applications = self.applications();
+                self.application_selected = selected_process
+                    .and_then(|process_id| {
+                        applications
+                            .iter()
+                            .position(|application| application.process_id == process_id)
+                    })
+                    .unwrap_or_else(|| {
+                        self.application_selected
+                            .min(applications.len().saturating_sub(1))
+                    });
                 self.reconnecting = false;
                 if self.status.is_error {
                     self.status = StatusLine::default();
@@ -320,6 +421,7 @@ impl TuiApp {
             }
             Mode::Channels => self.handle_main_key(key).await,
             Mode::Picker => self.handle_picker_key(key).await,
+            Mode::ApplicationPicker => self.handle_application_picker_key(key).await,
         }
     }
 
@@ -334,23 +436,23 @@ impl TuiApp {
                 return;
             }
             KeyCode::Char('3') => {
-                self.set_focus(FocusPane::Devices);
+                self.set_focus(FocusPane::Browser);
                 return;
             }
             KeyCode::Tab => {
                 let focus = match self.focus {
                     FocusPane::Output => FocusPane::Input,
-                    FocusPane::Input => FocusPane::Devices,
-                    FocusPane::Devices => FocusPane::Output,
+                    FocusPane::Input => FocusPane::Browser,
+                    FocusPane::Browser => FocusPane::Output,
                 };
                 self.set_focus(focus);
                 return;
             }
             KeyCode::BackTab => {
                 let focus = match self.focus {
-                    FocusPane::Output => FocusPane::Devices,
+                    FocusPane::Output => FocusPane::Browser,
                     FocusPane::Input => FocusPane::Output,
-                    FocusPane::Devices => FocusPane::Input,
+                    FocusPane::Browser => FocusPane::Input,
                 };
                 self.set_focus(focus);
                 return;
@@ -361,7 +463,7 @@ impl TuiApp {
         match self.focus {
             FocusPane::Output => self.handle_output_key(key).await,
             FocusPane::Input => self.handle_input_key(key).await,
-            FocusPane::Devices => self.handle_devices_key(key).await,
+            FocusPane::Browser => self.handle_browser_key(key).await,
         }
     }
 
@@ -370,7 +472,7 @@ impl TuiApp {
         match focus {
             FocusPane::Output => self.sync_mixer_to_output(),
             FocusPane::Input => self.mixer_channel = MixerChannel::Microphone,
-            FocusPane::Devices => {}
+            FocusPane::Browser => {}
         }
     }
 
@@ -443,6 +545,63 @@ impl TuiApp {
         }
     }
 
+    async fn handle_browser_key(&mut self, key: KeyEvent) {
+        if matches!(
+            key.code,
+            KeyCode::Char('[') | KeyCode::Char('h') | KeyCode::Left
+        ) {
+            self.browser_tab = BrowserTab::Applications;
+            return;
+        }
+        if matches!(
+            key.code,
+            KeyCode::Char(']') | KeyCode::Char('l') | KeyCode::Right
+        ) {
+            self.browser_tab = BrowserTab::Devices;
+            return;
+        }
+        match key.code {
+            KeyCode::Char('a') => {
+                self.browser_tab = BrowserTab::Applications;
+                return;
+            }
+            KeyCode::Char('d') => {
+                self.browser_tab = BrowserTab::Devices;
+                return;
+            }
+            _ => {}
+        }
+
+        match self.browser_tab {
+            BrowserTab::Applications => self.handle_applications_key(key).await,
+            BrowserTab::Devices => self.handle_devices_key(key).await,
+        }
+    }
+
+    async fn handle_applications_key(&mut self, key: KeyEvent) {
+        let len = self.applications().len();
+        match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('j') | KeyCode::Down if len > 0 => {
+                self.application_selected = (self.application_selected + 1) % len;
+            }
+            KeyCode::Char('k') | KeyCode::Up if len > 0 => {
+                self.application_selected = (self.application_selected + len - 1) % len;
+            }
+            KeyCode::Char('g') | KeyCode::Home => self.application_selected = 0,
+            KeyCode::Char('G') | KeyCode::End if len > 0 => {
+                self.application_selected = len - 1;
+            }
+            KeyCode::Enter if len > 0 => self.open_application_picker(),
+            KeyCode::Char('r') => {
+                self.status = StatusLine::info("Refreshing…");
+                self.refresh().await;
+            }
+            KeyCode::Char('?') => self.open_help(Mode::Channels),
+            _ => {}
+        }
+    }
+
     async fn handle_devices_key(&mut self, key: KeyEvent) {
         let len = self.devices().len();
         match key.code {
@@ -508,6 +667,64 @@ impl TuiApp {
                 ));
             }
             Err(err) => self.status = StatusLine::error(err.to_string()),
+        }
+    }
+
+    fn open_application_picker(&mut self) {
+        let Some(application) = self.selected_application().cloned() else {
+            return;
+        };
+        self.application_picker = Some(ApplicationPicker::new(&application));
+        self.mode = Mode::ApplicationPicker;
+    }
+
+    async fn handle_application_picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.application_picker.as_mut() else {
+            self.mode = Mode::Channels;
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.close_application_picker(),
+            KeyCode::Char('j') | KeyCode::Down => picker.next(),
+            KeyCode::Char('k') | KeyCode::Up => picker.previous(),
+            KeyCode::Char('g') | KeyCode::Home => picker.selected = 0,
+            KeyCode::Char('G') | KeyCode::End => {
+                picker.selected = ApplicationPicker::CHANNELS.len() - 1;
+            }
+            KeyCode::Char('?') => self.open_help(Mode::ApplicationPicker),
+            KeyCode::Enter => self.apply_application_selection().await,
+            _ => {}
+        }
+    }
+
+    fn close_application_picker(&mut self) {
+        self.application_picker = None;
+        self.mode = Mode::Channels;
+    }
+
+    async fn apply_application_selection(&mut self) {
+        let Some(picker) = self.application_picker.as_ref() else {
+            return;
+        };
+        let process_id = picker.process_id;
+        let name = picker.application_name.clone();
+        let channel = picker.selected_channel();
+        match self
+            .app
+            .set_application_route_by_pid(process_id, channel)
+            .await
+        {
+            Ok(_) => {
+                self.close_application_picker();
+                self.refresh().await;
+                self.status = StatusLine::info(format!("{name} → {}", channel.display_name()));
+            }
+            Err(err) => {
+                let message = err.to_string();
+                self.close_application_picker();
+                self.refresh().await;
+                self.status = StatusLine::error(message);
+            }
         }
     }
 

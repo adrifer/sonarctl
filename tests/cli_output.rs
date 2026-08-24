@@ -8,7 +8,7 @@ use sonarctl::cli::{Cli, Command, parse_channels, parse_mixer_channels, parse_vo
 use sonarctl::output;
 use sonarctl::sonar::models::{Channel, MixerChannel};
 
-use common::{fixture_devices, fixture_routes, fixture_volumes};
+use common::{fixture_applications, fixture_devices, fixture_routes, fixture_volumes};
 
 fn parse(args: &[&str]) -> Cli {
     Cli::try_parse_from(args).expect("valid arguments")
@@ -128,6 +128,36 @@ fn parses_mixer_commands_and_values() {
 }
 
 #[test]
+fn parses_application_commands() {
+    assert!(matches!(
+        parse(&["sonarctl", "apps", "--json"]).command,
+        Some(Command::Apps { json: true })
+    ));
+    let cli = parse(&["sonarctl", "app", "set", "Discord.exe", "chat"]);
+    match cli.command {
+        Some(Command::App {
+            command: sonarctl::cli::AppCommand::Set(args),
+        }) => {
+            assert_eq!(args.selector, "Discord.exe");
+            assert_eq!(args.channel.as_deref(), Some("chat"));
+            assert_eq!(args.pid, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+    let cli = parse(&["sonarctl", "app", "set", "--pid", "200", "media"]);
+    match cli.command {
+        Some(Command::App {
+            command: sonarctl::cli::AppCommand::Set(args),
+        }) => {
+            assert_eq!(args.selector, "media");
+            assert!(args.channel.is_none());
+            assert_eq!(args.pid, Some(200));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn status_output_is_a_plain_table() {
     let text = output::status_text(&fixture_routes());
     let lines: Vec<&str> = text.lines().collect();
@@ -210,4 +240,19 @@ fn volume_output_is_a_plain_table() {
     assert!(text.starts_with("CHANNEL     VOLUME  STATE\n"));
     assert!(text.contains("Master      80%     unmuted"));
     assert!(text.contains("Chat        75%     muted"));
+}
+
+#[test]
+fn application_output_has_stable_text_and_json() {
+    let applications = fixture_applications();
+    let text = output::applications_text(&applications);
+    assert!(text.starts_with("APPLICATION     PID  CHANNEL"));
+    assert!(text.contains("Microsoft Edge  200  Media"));
+    assert!(text.contains("Windows App     300  Chat"));
+
+    let value = output::applications_json(&applications);
+    assert_eq!(value["applications"].as_array().unwrap().len(), 5);
+    assert_eq!(value["applications"][0]["process_id"], 200);
+    assert_eq!(value["applications"][0]["channel"], "media");
+    assert_eq!(value["applications"][0]["activity"], "active");
 }

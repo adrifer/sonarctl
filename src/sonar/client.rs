@@ -6,11 +6,15 @@ use serde_json::Value;
 use url::Url;
 
 use crate::error::{Error, Result};
+use crate::sonar::applications::{
+    APPLICATION_ROUTING_PATH, parse_application_routing, set_application_route_path,
+};
 use crate::sonar::discovery::{
     self, DiscoveryOptions, SonarSubApp, sonar_base_url, validate_local_url,
 };
 use crate::sonar::models::{
-    AudioDevice, Channel, MixerChannel, Route, VolumeState, parse_classic_volumes, parse_devices,
+    ApplicationSession, AudioDevice, Channel, MixerChannel, Route, VolumeState,
+    parse_classic_volumes, parse_devices,
 };
 use crate::sonar::routing::{ROUTES_PATH, parse_routes, route_api_id, set_route_path_with_id};
 
@@ -216,6 +220,39 @@ impl SonarClient {
     pub async fn volumes(&self) -> Result<Vec<VolumeState>> {
         let value = self.get_json(CLASSIC_VOLUMES_PATH).await?;
         parse_classic_volumes(&value)
+    }
+
+    pub async fn applications(&self) -> Result<Vec<ApplicationSession>> {
+        let value = self.get_json(APPLICATION_ROUTING_PATH).await?;
+        Ok(parse_application_routing(&value)?.sessions)
+    }
+
+    pub async fn set_application_route(&self, process_id: u32, channel: Channel) -> Result<()> {
+        let current = parse_application_routing(&self.get_json(APPLICATION_ROUTING_PATH).await?)?;
+        if !current.contains_process(process_id) {
+            return Err(Error::ApplicationSessionStale { process_id });
+        }
+        let target = current.target_device(channel)?.to_string();
+        self.put_empty(&set_application_route_path(&target, process_id))
+            .await?;
+
+        let actual = parse_application_routing(&self.get_json(APPLICATION_ROUTING_PATH).await?)?;
+        if !actual.contains_process(process_id) {
+            return Err(Error::ApplicationSessionStale { process_id });
+        }
+        if actual.process_is_on(process_id, channel) {
+            return Ok(());
+        }
+        let route = actual
+            .sessions
+            .iter()
+            .find(|session| session.process_id == process_id)
+            .map(|session| session.route.display_name().to_string());
+        Err(Error::ApplicationRouteVerificationFailed {
+            process_id,
+            expected: channel.display_name().to_string(),
+            actual: route,
+        })
     }
 
     pub async fn set_volume(&self, channel: MixerChannel, volume: f64) -> Result<()> {

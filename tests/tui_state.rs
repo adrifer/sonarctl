@@ -6,8 +6,8 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use sonarctl::config::Config;
 use sonarctl::sonar::backend::SonarBackend;
-use sonarctl::sonar::models::{Channel, MixerChannel};
-use sonarctl::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
+use sonarctl::sonar::models::{ApplicationRoute, Channel, MixerChannel};
+use sonarctl::tui::app::{BrowserTab, FocusPane, Mode, RouteTarget, TuiApp};
 use sonarctl::tui::event::{Key, KeyCode, KeyModifiers};
 use sonarctl::tui::ui;
 
@@ -52,6 +52,21 @@ async fn devices_render_in_separate_output_and_input_sections() {
     terminal
         .draw(|frame| ui::draw(frame, &tui))
         .expect("draw dashboard");
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("[Applications] Devices"));
+    assert!(rendered.contains("Discord"));
+
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    tui.handle_key(key(KeyCode::Char('d'))).await;
+    terminal
+        .draw(|frame| ui::draw(frame, &tui))
+        .expect("draw devices tab");
 
     let rows: Vec<String> = terminal
         .backend()
@@ -70,7 +85,7 @@ async fn devices_render_in_separate_output_and_input_sections() {
     let output = rendered.find("OUTPUT DEVICES").expect("output heading");
     let input = rendered.find("INPUT DEVICES").expect("input heading");
     assert!(output < input);
-    let devices_pane = position("[3] Devices");
+    let devices_pane = position("Applications [Devices]");
     let input_pane = position("[2] Input routing");
     let details_pane = position("Channel details");
     assert!(devices_pane.1 > input_pane.1);
@@ -83,6 +98,7 @@ async fn devices_render_in_separate_output_and_input_sections() {
     assert!(rendered.contains("80%"));
     assert!(rendered.contains("Muted    No"));
 
+    tui.handle_key(key(KeyCode::Char('1'))).await;
     tui.handle_key(key(KeyCode::Char('m'))).await;
     terminal
         .draw(|frame| ui::draw(frame, &tui))
@@ -134,13 +150,13 @@ async fn focuses_numbered_panes_directly_and_with_tab() {
     assert_eq!(tui.selected_channel(), Some(Channel::Microphone));
 
     tui.handle_key(key(KeyCode::Char('3'))).await;
-    assert_eq!(tui.focus, FocusPane::Devices);
+    assert_eq!(tui.focus, FocusPane::Browser);
     assert_eq!(tui.selected_target(), None);
 
     tui.handle_key(key(KeyCode::Tab)).await;
     assert_eq!(tui.focus, FocusPane::Output);
     tui.handle_key(key(KeyCode::BackTab)).await;
-    assert_eq!(tui.focus, FocusPane::Devices);
+    assert_eq!(tui.focus, FocusPane::Browser);
 }
 
 #[tokio::test]
@@ -347,7 +363,9 @@ async fn all_output_failure_rolls_back_previous_channels() {
 async fn devices_pane_toggles_picker_visibility() {
     let (mut tui, _) = started().await;
     tui.handle_key(key(KeyCode::Char('3'))).await;
-    assert_eq!(tui.focus, FocusPane::Devices);
+    assert_eq!(tui.focus, FocusPane::Browser);
+    tui.handle_key(key(KeyCode::Char('d'))).await;
+    assert_eq!(tui.browser_tab, BrowserTab::Devices);
 
     let hidden_id = tui.devices()[0].id.clone();
     tui.handle_key(key(KeyCode::Char(' '))).await;
@@ -364,6 +382,115 @@ async fn devices_pane_toggles_picker_visibility() {
             .iter()
             .all(|device| device.id != hidden_id)
     );
+}
+
+#[tokio::test]
+async fn applications_are_the_default_browser_tab_and_tab_keys_are_contextual() {
+    let (mut tui, backend) = started().await;
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    assert_eq!(tui.browser_tab, BrowserTab::Applications);
+
+    tui.handle_key(key(KeyCode::Char('l'))).await;
+    assert_eq!(tui.browser_tab, BrowserTab::Devices);
+    tui.handle_key(key(KeyCode::Char('['))).await;
+    assert_eq!(tui.browser_tab, BrowserTab::Applications);
+    tui.handle_key(key(KeyCode::Char(']'))).await;
+    assert_eq!(tui.browser_tab, BrowserTab::Devices);
+    tui.handle_key(key(KeyCode::Char('a'))).await;
+    assert_eq!(tui.browser_tab, BrowserTab::Applications);
+
+    tui.handle_key(key(KeyCode::Char('1'))).await;
+    tui.handle_key(key(KeyCode::Char('j'))).await;
+    tui.handle_key(key(KeyCode::Char('h'))).await;
+    assert_eq!(
+        backend.volume_calls.lock().unwrap().as_slice(),
+        &[(MixerChannel::Game, 0.95)]
+    );
+}
+
+#[tokio::test]
+async fn application_picker_routes_the_selected_process() {
+    let (mut tui, backend) = started().await;
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    let selected_pid = tui.selected_application().unwrap().process_id;
+    tui.handle_key(key(KeyCode::Enter)).await;
+    assert_eq!(tui.mode, Mode::ApplicationPicker);
+    tui.application_picker.as_mut().unwrap().selected = 3;
+    tui.handle_key(key(KeyCode::Enter)).await;
+
+    assert_eq!(tui.mode, Mode::Channels);
+    assert_eq!(
+        backend.application_calls.lock().unwrap().as_slice(),
+        &[(selected_pid, Channel::Aux)]
+    );
+    assert_eq!(
+        tui.applications()
+            .iter()
+            .find(|application| application.process_id == selected_pid)
+            .unwrap()
+            .route,
+        ApplicationRoute::Aux
+    );
+}
+
+#[tokio::test]
+async fn application_picker_never_substitutes_a_changed_pid() {
+    let (mut tui, backend) = started().await;
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    let selected_pid = tui.selected_application().unwrap().process_id;
+    tui.handle_key(key(KeyCode::Enter)).await;
+    backend
+        .applications
+        .lock()
+        .unwrap()
+        .iter_mut()
+        .find(|application| application.process_id == selected_pid)
+        .unwrap()
+        .process_id = selected_pid + 10_000;
+
+    tui.handle_key(key(KeyCode::Enter)).await;
+
+    assert_eq!(tui.mode, Mode::Channels);
+    assert!(tui.status.is_error);
+    assert!(tui.status.text.contains(&selected_pid.to_string()));
+    assert!(backend.application_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn refresh_preserves_application_selection_by_exact_pid() {
+    let (mut tui, backend) = started().await;
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    tui.handle_key(key(KeyCode::Char('j'))).await;
+    let selected_pid = tui.selected_application().unwrap().process_id;
+    backend.applications.lock().unwrap().reverse();
+
+    tui.refresh().await;
+
+    assert_eq!(tui.selected_application().unwrap().process_id, selected_pid);
+}
+
+#[tokio::test]
+async fn channel_details_list_assigned_applications() {
+    let (mut tui, _) = started().await;
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    tui.handle_key(key(KeyCode::Char('d'))).await;
+    tui.handle_key(key(KeyCode::Char('1'))).await;
+    tui.handle_key(key(KeyCode::Char('j'))).await;
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).expect("terminal");
+    terminal
+        .draw(|frame| ui::draw(frame, &tui))
+        .expect("draw dashboard");
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+
+    assert!(rendered.contains("Channel  Game"));
+    assert!(rendered.contains("Applications"));
+    assert!(rendered.contains("Discord"));
 }
 
 #[tokio::test]

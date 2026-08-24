@@ -1,0 +1,133 @@
+[
+  {
+    "deviceId": "{virtual-aux}",
+    "role": "aux",
+    "dataFlow": "render",
+    "audioSessions": []
+  },
+  {
+    "deviceId": "{physical-speakers}",
+    "role": "none",
+    "dataFlow": "render",
+    "audioSessions": [
+      {
+        "id": "spotify-400",
+        "processName": "Spotify",
+        "processId": 400,
+        "isSystemSound": false,
+        "state": "inactive",
+        "displayName": "Spotify",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      }
+    ]
+  },
+  {
+    "deviceId": "{virtual-game}",
+    "role": "game",
+    "dataFlow": "render",
+    "audioSessions": [
+      {
+        "id": "discord-100",
+        "processName": "Discord",
+        "processId": 100,
+        "isSystemSound": false,
+        "state": "inactive",
+        "displayName": "Discord",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      },
+      {
+        "id": "discord-canary-101",
+        "processName": "DiscordCanary",
+        "processId": 101,
+        "isSystemSound": false,
+        "state": "inactive",
+        "displayName": "Discord",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      },
+      {
+        "id": "edge-old-200",
+        "processName": "msedge",
+        "processId": 200,
+        "isSystemSound": false,
+        "state": "inactive",
+        "displayName": "Microsoft Edge",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      },
+      {
+        "id": "expired-500",
+        "processName": "OldGame",
+        "processId": 500,
+        "isSystemSound": false,
+        "state": "expired",
+        "displayName": "Old Game",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      }
+    ]
+  },
+  {
+    "deviceId": "{virtual-chat}",
+    "role": "chatRender",
+    "dataFlow": "render",
+    "audioSessions": [
+      {
+        "id": "windows-app-300",
+        "processName": "msrdc",
+        "processId": 300,
+        "isSystemSound": false,
+        "state": "active",
+        "displayName": "Windows App",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      }
+    ]
+  },
+  {
+    "deviceId": "{virtual-media}",
+    "role": "media",
+    "dataFlow": "render",
+    "audioSessions": [
+      {
+        "id": "edge-current-200",
+        "processName": "msedge",
+        "processId": 200,
+        "isSystemSound": false,
+        "state": "active",
+        "displayName": "Microsoft Edge",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      },
+      {
+        "id": "system",
+        "processName": "Idle",
+        "processId": 0,
+        "isSystemSound": true,
+        "state": "active",
+        "displayName": "System Sounds",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      }
+    ]
+  },
+  {
+    "deviceId": "{capture}",
+    "role": "none",
+    "dataFlow": "capture",
+    "audioSessions": [
+      {
+        "id": "capture-600",
+        "processName": "Recorder",
+        "processId": 600,
+        "isSystemSound": false,
+        "state": "active",
+        "displayName": "Recorder",
+        "isRoutingErrorProne": false,
+        "routingErrorDetected": false
+      }
+    ]
+  }
+]
