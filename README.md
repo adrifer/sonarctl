@@ -34,9 +34,35 @@ WSL is optional, and fully supported as an invocation and development environmen
 
 ## Install
 
-Download or build `sonarctl.exe` and place it in `C:\Tools\sonarctl\`. No administrator rights,
-installer, registry changes or `Program Files` access are required. Adding `C:\Tools\sonarctl` to
-your Windows `PATH` is optional; `C:\Tools\sonarctl\sonarctl.exe status` works either way.
+### Windows
+
+Install the latest release for your user account from PowerShell:
+
+```powershell
+$script = "$env:TEMP\install-sonarctl.ps1"
+Invoke-WebRequest https://raw.githubusercontent.com/adrifer/sonarctl/main/install.ps1 -OutFile $script
+& $script
+Remove-Item $script
+```
+
+The installer verifies the release checksum, places `sonarctl.exe` in
+`%LOCALAPPDATA%\Programs\sonarctl`, and adds that directory to your user `PATH`. It does not need
+administrator access. Pass `-Version v0.1.0` to install a specific release or `-NoPath` to leave
+your `PATH` unchanged.
+
+Scoop and WinGet packages are also available:
+
+```powershell
+scoop bucket add adrifer https://github.com/adrifer/scoop-bucket
+scoop install adrifer/sonarctl
+
+winget install Adrifer.Sonarctl
+```
+
+You can also download `sonarctl.exe` and `sonarctl.exe.sha256` directly from
+[GitHub Releases](https://github.com/adrifer/sonarctl/releases).
+
+### NixOS/WSL
 
 From WSL, `just install` cross-compiles and installs everything (see
 [Development](#development)).

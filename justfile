@@ -60,6 +60,14 @@ dev *ARGS: build
 run *ARGS:
     "{{win_install_dir}}/sonarctl.exe" "$@"
 
+# Create and push a stable release tag (defaults to a patch bump)
+release-stable *ARGS:
+    bash scripts/release.sh stable "$@"
+
+# Create and push a preview release tag
+release-preview *ARGS:
+    bash scripts/release.sh preview "$@"
+
 # Remove build artifacts
 clean:
     cargo clean
