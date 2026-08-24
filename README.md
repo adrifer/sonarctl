@@ -302,12 +302,11 @@ WSL
 
 The generated wrapper is defined in
 [`scripts/sonar-wsl.sh`](scripts/sonar-wsl.sh). It contains no Sonar logic: normal commands are
-forwarded directly, while TUI commands run inside an alternate screen owned by the WSL wrapper.
+forwarded directly to the native Windows executable.
 
 > Windows executables do not need to be imported into the WSL `PATH`. The wrapper handles
 > invocation explicitly. It also forwards `TERM` through WSL interop so Crossterm uses ANSI
-> sequences. For TUI invocations, the Linux wrapper owns the alternate screen and restores it
-> after the Windows process exits, preventing WSL's console bridge from blanking the shell.
+> sequences.
 
 Because the binary is a native Windows process, `localhost` always means Windows and no WSL
 networking, NAT or host-IP discovery logic is needed. The TUI runs fine in Windows Terminal from
