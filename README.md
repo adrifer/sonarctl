@@ -50,12 +50,9 @@ The installer verifies the release checksum, places `sonarctl.exe` in
 administrator access. Pass a tag such as `-Version v1.2.3` to install a specific release, or use
 `-NoPath` to leave your `PATH` unchanged.
 
-Scoop and WinGet packages are also available:
+WinGet installation will be available after its community manifest is accepted:
 
 ```powershell
-scoop bucket add adrifer https://github.com/adrifer/scoop-bucket
-scoop install adrifer/sonarctl
-
 winget install Adrifer.Sonarctl
 ```
 
