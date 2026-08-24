@@ -51,6 +51,6 @@ restore_screen() {
 trap restore_screen EXIT
 
 printf "\033[?1049h"
-SONARCTL_EXTERNAL_ALT_SCREEN=1 "$sonarctl_exe" "$@" </dev/tty 2>"$error_log"
+SONARCTL_EXTERNAL_ALT_SCREEN=1 "$sonarctl_exe" "$@" 2>"$error_log"
 status=$?
 exit "$status"
