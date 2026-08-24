@@ -300,21 +300,14 @@ WSL
        └─ /mnt/c/Tools/sonarctl/sonarctl.exe
 ```
 
-The wrapper contains no Sonar logic — it only forwards arguments, stdin/stdout/stderr and the exit
-code:
-
-```bash
-#!/usr/bin/env bash
-export TERM="${TERM:-xterm-256color}"
-if [[ ":${WSLENV:-}:" != *":TERM:"* && ":${WSLENV:-}:" != *":TERM/"* ]]; then
-  export WSLENV="${WSLENV:+${WSLENV%:}:}TERM"
-fi
-exec "/mnt/c/Tools/sonarctl/sonarctl.exe" "$@"
-```
+The generated wrapper is defined in
+[`scripts/sonar-wsl.sh`](scripts/sonar-wsl.sh). It contains no Sonar logic: normal commands are
+forwarded directly, while TUI commands run inside an alternate screen owned by the WSL wrapper.
 
 > Windows executables do not need to be imported into the WSL `PATH`. The wrapper handles
 > invocation explicitly. It also forwards `TERM` through WSL interop so Crossterm uses ANSI
-> alternate-screen sequences and restores the shell contents when the TUI exits.
+> sequences. For TUI invocations, the Linux wrapper owns the alternate screen and restores it
+> after the Windows process exits, preventing WSL's console bridge from blanking the shell.
 
 Because the binary is a native Windows process, `localhost` always means Windows and no WSL
 networking, NAT or host-IP discovery logic is needed. The TUI runs fine in Windows Terminal from
