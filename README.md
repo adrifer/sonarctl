@@ -144,27 +144,39 @@ otherwise, so aliases survive most hardware re-enumerations.
 ## TUI
 
 ```text
-┌ sonarctl ──────────────────────────────────────────────┐
-│ > Game        Arctis Nova Pro Wireless                 │
-│   Chat        Arctis Nova Pro Wireless                 │
-│   Media       LG TV                                    │
-│   Aux         LG TV                                    │
-│   Microphone  Shure MV7                                │
-│ ↑↓ select   Enter change   r refresh   ? help   q quit │
+ Routing │ Devices
+┌ Output ────────────────────────────────────────────────┐
+│ > All Outputs  Mixed                                   │
+│   Game         Arctis Nova Pro Wireless                │
+│   Chat         Arctis Nova Pro Wireless                │
+│   Media        LG TV                                   │
+│   Aux          LG TV                                   │
+└────────────────────────────────────────────────────────┘
+┌ Input ─────────────────────────────────────────────────┐
+│   Microphone   Shure MV7                               │
 └────────────────────────────────────────────────────────┘
 ```
 
-| Key | Main view | Device picker |
-| --- | --- | --- |
-| `j` / `↓` | next channel | next device |
-| `k` / `↑` | previous channel | previous device |
-| `g` / `G` | first / last channel | first / last device |
-| `Enter` | open the device picker | apply |
-| `/` | — | filter |
-| `Esc` | quit | cancel |
-| `r` | refresh | — |
-| `?` | help | help |
-| `q` | quit | cancel |
+`All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
+Input section.
+
+| Key | Routing | Devices | Device picker |
+| --- | --- | --- | --- |
+| `Tab` | switch to Devices | switch to Routing | — |
+| `j` / `↓` | next route | next device | next device |
+| `k` / `↑` | previous route | previous device | previous device |
+| `g` / `G` | first / last route | first / last device | first / last device |
+| `Enter` | open picker | toggle picker visibility | apply |
+| `Space` | — | toggle picker visibility | — |
+| `/` | — | — | filter |
+| `Esc` | quit | quit | cancel |
+| `r` | refresh | refresh | — |
+| `?` | help | help | help |
+| `q` | quit | quit | cancel |
+
+The Devices tab controls which physical devices appear in route pickers. Toggled visibility is
+stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable
+hardware in Windows.
 
 State refreshes every 3 seconds (configurable) and immediately after a change. The terminal is
 always restored — on quit, `Ctrl+C`, errors and panics.
@@ -203,14 +215,14 @@ Output is plain text with no ANSI styling, so `DEVICE=$(sonarctl get game)` work
 8   configuration error
 ```
 
-## Using sonarctl from WSL
+## Using `sonar` from WSL
 
 WSL support works by launching the Windows binary:
 
 ```text
 WSL
  │
- └─ ~/.local/bin/sonarctl
+ └─ ~/.local/bin/sonar
        │
        └─ /mnt/c/Tools/sonarctl/sonarctl.exe
 ```
@@ -240,7 +252,7 @@ rustup target add x86_64-pc-windows-gnu
 just test        # cargo test — never needs SteelSeries GG or Sonar
 just lint        # rustfmt check + clippy
 just install     # test, cross-compile, install to C:\Tools\sonarctl + WSL wrapper
-sonarctl doctor
+sonar doctor
 ```
 
 `just install` is idempotent: it replaces `C:\Tools\sonarctl\sonarctl.exe` and rewrites the WSL

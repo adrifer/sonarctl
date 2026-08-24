@@ -53,6 +53,7 @@ pub struct MockBackend {
     routes: Mutex<Vec<Route>>,
     pub calls: Mutex<Vec<(Channel, String)>>,
     fail_set: bool,
+    fail_once_channel: Mutex<Option<Channel>>,
 }
 
 impl MockBackend {
@@ -62,12 +63,20 @@ impl MockBackend {
             routes: Mutex::new(fixture_routes()),
             calls: Mutex::new(Vec::new()),
             fail_set: false,
+            fail_once_channel: Mutex::new(None),
         }
     }
 
     pub fn failing() -> Self {
         MockBackend {
             fail_set: true,
+            ..MockBackend::new()
+        }
+    }
+
+    pub fn failing_after_change_once_on(channel: Channel) -> Self {
+        MockBackend {
+            fail_once_channel: Mutex::new(Some(channel)),
             ..MockBackend::new()
         }
     }
@@ -108,10 +117,22 @@ impl SonarBackend for MockBackend {
         if self.fail_set {
             return Err(Error::unexpected("mock refused the route change"));
         }
+        let fail_after_change = {
+            let mut fail_once = self.fail_once_channel.lock().unwrap();
+            if *fail_once == Some(channel) {
+                *fail_once = None;
+                true
+            } else {
+                false
+            }
+        };
         let mut routes = self.routes.lock().unwrap();
         if let Some(route) = routes.iter_mut().find(|route| route.channel == channel) {
             route.device_id = device_id.to_string();
             route.device_name = None;
+        }
+        if fail_after_change {
+            return Err(Error::unexpected("mock verification failed after mutation"));
         }
         Ok(())
     }

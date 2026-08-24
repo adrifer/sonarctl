@@ -5,7 +5,7 @@ mod common;
 use sonarctl::config::Config;
 use sonarctl::sonar::backend::SonarBackend;
 use sonarctl::sonar::models::Channel;
-use sonarctl::tui::app::{Mode, TuiApp};
+use sonarctl::tui::app::{Mode, RouteTarget, TuiApp, TuiTab};
 use sonarctl::tui::event::{Key, KeyCode, KeyModifiers};
 
 use common::{device_id, mock_app};
@@ -32,27 +32,28 @@ async fn shows_current_routes_after_refresh() {
 #[tokio::test]
 async fn navigates_channels_with_arrows_and_vim_keys() {
     let (mut tui, _) = started().await;
+    assert_eq!(tui.selected_target(), RouteTarget::AllOutputs);
 
     tui.handle_key(key(KeyCode::Char('j'))).await;
-    assert_eq!(tui.selected_channel(), Channel::Chat);
+    assert_eq!(tui.selected_channel(), Some(Channel::Game));
 
     tui.handle_key(key(KeyCode::Down)).await;
-    assert_eq!(tui.selected_channel(), Channel::Media);
+    assert_eq!(tui.selected_channel(), Some(Channel::Chat));
 
     tui.handle_key(key(KeyCode::Char('k'))).await;
-    assert_eq!(tui.selected_channel(), Channel::Chat);
+    assert_eq!(tui.selected_channel(), Some(Channel::Game));
 
     tui.handle_key(key(KeyCode::Char('G'))).await;
-    assert_eq!(tui.selected_channel(), Channel::Microphone);
+    assert_eq!(tui.selected_channel(), Some(Channel::Microphone));
 
     tui.handle_key(key(KeyCode::Char('j'))).await;
-    assert_eq!(tui.selected_channel(), Channel::Game, "wraps around");
+    assert_eq!(tui.selected_channel(), None, "wraps to all outputs");
 
     tui.handle_key(key(KeyCode::Char('k'))).await;
-    assert_eq!(tui.selected_channel(), Channel::Microphone);
+    assert_eq!(tui.selected_channel(), Some(Channel::Microphone));
 
     tui.handle_key(key(KeyCode::Char('g'))).await;
-    assert_eq!(tui.selected_channel(), Channel::Game);
+    assert_eq!(tui.selected_channel(), None);
 }
 
 #[tokio::test]
@@ -94,14 +95,10 @@ async fn picker_only_offers_compatible_devices() {
     tui.handle_key(key(KeyCode::Enter)).await;
     assert_eq!(tui.mode, Mode::Picker);
     let picker = tui.picker.as_ref().expect("picker");
-    assert_eq!(picker.channel, Channel::Game);
+    assert_eq!(picker.target, RouteTarget::AllOutputs);
     assert_eq!(picker.devices.len(), 4);
     assert!(picker.devices.iter().all(|device| device.is_physical()));
-    assert_eq!(
-        picker.current_id.as_deref(),
-        Some(device_id("Arctis Nova Pro Wireless").as_str()),
-        "starts on the current device"
-    );
+    assert!(picker.current_id.is_none(), "the output routes are mixed");
 
     tui.handle_key(key(KeyCode::Esc)).await;
     assert_eq!(tui.mode, Mode::Channels);
@@ -110,7 +107,7 @@ async fn picker_only_offers_compatible_devices() {
     tui.handle_key(key(KeyCode::Char('G'))).await;
     tui.handle_key(key(KeyCode::Enter)).await;
     let picker = tui.picker.as_ref().expect("picker");
-    assert_eq!(picker.channel, Channel::Microphone);
+    assert_eq!(picker.target, RouteTarget::Channel(Channel::Microphone));
     assert!(
         picker
             .devices
@@ -175,11 +172,83 @@ async fn applying_a_selection_changes_the_route() {
     assert_eq!(tui.mode, Mode::Channels);
     assert_eq!(
         backend.recorded(),
-        vec![(Channel::Game, device_id("LG TV"))]
+        vec![
+            (Channel::Game, device_id("LG TV")),
+            (Channel::Chat, device_id("LG TV")),
+            (Channel::Media, device_id("LG TV")),
+            (Channel::Aux, device_id("LG TV")),
+        ]
     );
-    assert_eq!(tui.status.text, "Game → LG TV");
+    assert_eq!(tui.status.text, "All Outputs → LG TV");
     assert!(!tui.status.is_error);
     assert_eq!(tui.device_for(Channel::Game), "LG TV");
+    assert_eq!(tui.device_for(Channel::Chat), "LG TV");
+    assert_eq!(tui.all_outputs_device(), "LG TV");
+}
+
+#[tokio::test]
+async fn routing_one_channel_still_works() {
+    let (mut tui, backend) = started().await;
+    tui.handle_key(key(KeyCode::Char('j'))).await;
+    tui.handle_key(key(KeyCode::Enter)).await;
+    tui.handle_key(key(KeyCode::Enter)).await;
+    assert_eq!(
+        backend.recorded(),
+        vec![(Channel::Game, device_id("Arctis Nova Pro Wireless"))]
+    );
+}
+
+#[tokio::test]
+async fn all_output_failure_rolls_back_previous_channels() {
+    let backend = std::sync::Arc::new(common::MockBackend::failing_after_change_once_on(
+        Channel::Chat,
+    ));
+    let app = sonarctl::app::App::new(backend.clone(), Config::default());
+    let mut tui = TuiApp::new(app);
+    tui.refresh().await;
+
+    tui.handle_key(key(KeyCode::Enter)).await;
+    tui.handle_key(key(KeyCode::Char('/'))).await;
+    for ch in "LG".chars() {
+        tui.handle_key(key(KeyCode::Char(ch))).await;
+    }
+    tui.handle_key(key(KeyCode::Enter)).await;
+    tui.handle_key(key(KeyCode::Enter)).await;
+
+    assert!(tui.status.is_error);
+    assert_eq!(tui.device_for(Channel::Game), "Arctis Nova Pro Wireless");
+    assert_eq!(
+        backend.recorded(),
+        vec![
+            (Channel::Game, device_id("LG TV")),
+            (Channel::Chat, device_id("LG TV")),
+            (Channel::Chat, device_id("Arctis Nova Pro Wireless")),
+            (Channel::Game, device_id("Arctis Nova Pro Wireless")),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn devices_tab_toggles_picker_visibility() {
+    let (mut tui, _) = started().await;
+    tui.handle_key(key(KeyCode::Tab)).await;
+    assert_eq!(tui.tab, TuiTab::Devices);
+
+    let hidden_id = tui.devices()[0].id.clone();
+    tui.handle_key(key(KeyCode::Char(' '))).await;
+    assert!(!tui.device_is_visible(&hidden_id));
+
+    tui.handle_key(key(KeyCode::Tab)).await;
+    assert_eq!(tui.tab, TuiTab::Routing);
+    tui.handle_key(key(KeyCode::Enter)).await;
+    assert!(
+        tui.picker
+            .as_ref()
+            .unwrap()
+            .devices
+            .iter()
+            .all(|device| device.id != hidden_id)
+    );
 }
 
 #[tokio::test]

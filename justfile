@@ -8,7 +8,7 @@ set positional-arguments := true
 win_target := "x86_64-pc-windows-gnu"
 win_install_dir := env_var_or_default("SONARCTL_WIN_DIR", "/mnt/c/Tools/sonarctl")
 win_exe := "target" / win_target / "release" / "sonarctl.exe"
-wrapper := env_var_or_default("SONARCTL_WRAPPER", env_var("HOME") + "/.local/bin/sonarctl")
+wrapper := env_var_or_default("SONARCTL_WRAPPER", env_var("HOME") + "/.local/bin/sonar")
 
 # List the available recipes
 default:

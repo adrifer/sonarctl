@@ -3,6 +3,7 @@
 pub mod app;
 pub mod event;
 pub mod ui;
+pub mod visibility;
 
 use std::io::{self, Stdout};
 
@@ -17,6 +18,7 @@ use crate::app::App;
 use crate::error::{Error, Result};
 use crate::tui::app::{Mode, TuiApp};
 use crate::tui::event::{AppEvent, EventStream};
+use crate::tui::visibility::DeviceVisibility;
 
 /// Restores the terminal when dropped, including on panic and on error paths.
 struct TerminalGuard;
@@ -60,7 +62,8 @@ fn io_error(err: io::Error) -> Error {
 /// Run the interactive UI until the user quits.
 pub async fn run(application: App) -> Result<()> {
     let refresh_interval = application.config().refresh_interval();
-    let mut tui = TuiApp::new(application);
+    let visibility = DeviceVisibility::load()?;
+    let mut tui = TuiApp::with_visibility(application, visibility);
 
     let _guard = TerminalGuard::enter()?;
     let mut terminal: Terminal<CrosstermBackend<Stdout>> =

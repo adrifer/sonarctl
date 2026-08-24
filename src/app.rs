@@ -121,6 +121,48 @@ impl App {
     pub async fn set_route_by_id(&self, channel: Channel, device_id: &str) -> Result<()> {
         self.backend.set_route(channel, device_id).await
     }
+
+    /// Change several channels to the same device id.
+    pub async fn set_routes_by_id(&self, channels: &[Channel], device_id: &str) -> Result<()> {
+        let routes = self.backend.routes().await?;
+        let mut originals = Vec::with_capacity(channels.len());
+        for channel in channels {
+            let original = routes
+                .iter()
+                .find(|route| route.channel == *channel)
+                .ok_or_else(|| {
+                    Error::unexpected(format!(
+                        "Sonar did not report a route for the {} channel",
+                        channel.display_name()
+                    ))
+                })?;
+            originals.push((*channel, original.device_id.clone()));
+        }
+
+        let mut applied: Vec<(Channel, String)> = Vec::with_capacity(channels.len());
+        for (channel, original_id) in &originals {
+            // A failed verification can still mean the PUT succeeded, so the
+            // current channel must participate in compensating rollback too.
+            applied.push((*channel, original_id.clone()));
+            if let Err(primary) = self.backend.set_route(*channel, device_id).await {
+                let mut rollback_failures = Vec::new();
+                for (applied_channel, original_id) in applied.iter().rev() {
+                    if let Err(err) = self.backend.set_route(*applied_channel, original_id).await {
+                        rollback_failures
+                            .push(format!("{}: {err}", applied_channel.display_name()));
+                    }
+                }
+                if rollback_failures.is_empty() {
+                    return Err(primary);
+                }
+                return Err(Error::unexpected(format!(
+                    "multi-channel routing failed ({primary}); rollback also failed for {}",
+                    rollback_failures.join(", ")
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn role_order(role: DeviceRole) -> u8 {
