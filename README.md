@@ -47,8 +47,8 @@ Remove-Item $script
 
 The installer verifies the release checksum, places `sonarctl.exe` in
 `%LOCALAPPDATA%\Programs\sonarctl`, and adds that directory to your user `PATH`. It does not need
-administrator access. Pass `-Version v0.1.0` to install a specific release or `-NoPath` to leave
-your `PATH` unchanged.
+administrator access. Pass a tag such as `-Version v1.2.3` to install a specific release, or use
+`-NoPath` to leave your `PATH` unchanged.
 
 Scoop and WinGet packages are also available:
 
