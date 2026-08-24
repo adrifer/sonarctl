@@ -15,7 +15,7 @@ use url::Url;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use common::{device_id, fixture};
+use common::{device_id, fixture, fixture_json};
 
 async fn sonar_server() -> MockServer {
     let server = MockServer::start().await;
@@ -153,6 +153,28 @@ async fn set_volume_and_mute_use_typed_channel_paths_and_verify() {
         .set_muted(MixerChannel::Microphone, false)
         .await
         .expect("set mute");
+}
+
+#[tokio::test]
+async fn volume_verification_accepts_sonar_float_rounding() {
+    let server = MockServer::start().await;
+    let mut volumes = fixture_json("volumeSettingsClassic.json");
+    volumes["devices"]["media"]["classic"]["volume"] = serde_json::json!(0.30000001192092896);
+    Mock::given(method("GET"))
+        .and(path("/volumeSettings/classic"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(volumes))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/volumeSettings/classic/media/Volume/0.3"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    client_for(&server)
+        .set_volume(MixerChannel::Media, 0.3)
+        .await
+        .expect("Sonar f32 rounding should verify");
 }
 
 #[tokio::test]

@@ -20,6 +20,7 @@ use crate::sonar::routing::{ROUTES_PATH, parse_routes, route_api_id, set_route_p
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const CLASSIC_VOLUMES_PATH: &str = "volumeSettings/classic";
+const VOLUME_VERIFICATION_TOLERANCE: f64 = 1e-6;
 
 fn ensure_crypto_provider() {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -278,7 +279,9 @@ impl SonarClient {
                     channel.display_name()
                 ))
             })?;
-        if (actual.volume - volume).abs() <= f64::EPSILON {
+        // Sonar stores the value as a 32-bit float, so values such as 0.3 do
+        // not round-trip exactly when decoded into Rust's f64.
+        if (actual.volume - volume).abs() <= VOLUME_VERIFICATION_TOLERANCE {
             Ok(())
         } else {
             Err(Error::unexpected(format!(
