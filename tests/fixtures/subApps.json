@@ -1,0 +1,23 @@
+{
+  "subApps": {
+    "sonar": {
+      "isEnabled": true,
+      "isReady": true,
+      "isRunning": true,
+      "isNew": false,
+      "shouldAutoStart": true,
+      "metadata": {
+        "webServerAddress": "http://127.0.0.1:65129",
+        "version": "12.4.0",
+        "installedVersion": "12.4.0",
+        "someFutureField": true
+      }
+    },
+    "moments": {
+      "isEnabled": false,
+      "isReady": false,
+      "isRunning": false,
+      "metadata": {}
+    }
+  }
+}
