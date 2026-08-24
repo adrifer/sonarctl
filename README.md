@@ -211,7 +211,8 @@ otherwise, so aliases survive most hardware re-enumerations.
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
 numbered Input pane. Channel details follow the selected output route (with `All Outputs` mapped to
 Master) or Microphone when Input is selected. The panel does not need focus: press `h`/`l` or
-`[`/`]` while a route is selected to decrease or increase its volume by 5%, and `m` to toggle mute.
+`[`/`]` while a route is selected to change its volume. Steps are 1% between 0% and 5%, then 5%
+from 5% upward, and `m` toggles mute.
 Press `1`, `2`, or `3` to focus a numbered pane directly; `Tab` cycles focus. Pane 3 opens on
 **Applications** and also contains a **Devices** tab. While pane 3 is focused, use `h`/`l`,
 `[`/`]`, or `←`/`→` to switch tabs (`a` and `d` select one directly). This is contextual: those
@@ -224,7 +225,7 @@ same bracket and Vim keys still change volume while Output or Input is focused.
 | `j` / `↓`, `k` / `↑` | select route | select application | select device | select item |
 | `g` / `G` | first / last route | first / last application | first / last device | first / last item |
 | `Enter` | open device picker | open channel picker | toggle picker visibility | apply |
-| `l` / `]`, `h` / `[` | change volume 5% | switch tabs | switch tabs | — |
+| `l` / `]`, `h` / `[` | change volume (1% at low levels, otherwise 5%) | switch tabs | switch tabs | — |
 | `a` / `d` | — | select Applications / Devices | select Applications / Devices | — |
 | `m` | toggle selected mute | — | — | — |
 | `Space` | — | — | toggle picker visibility | — |

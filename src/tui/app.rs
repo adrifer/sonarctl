@@ -639,6 +639,16 @@ impl TuiApp {
 
     async fn adjust_mixer(&mut self, delta: f64) {
         let channel = self.mixer_channel;
+        let current = self
+            .mixer_state()
+            .map(|state| state.percent())
+            .unwrap_or_default();
+        let delta = Self::stepped_volume_delta(current, delta);
+        if delta == 0.0 {
+            self.status =
+                StatusLine::info(format!("{} volume: {current:.0}%", channel.display_name()));
+            return;
+        }
         match self
             .app
             .change_volumes(&[channel], VolumeChange::Relative(delta))
@@ -651,6 +661,27 @@ impl TuiApp {
                     StatusLine::info(format!("{} volume: {percent:.0}%", channel.display_name()));
             }
             Err(err) => self.status = StatusLine::error(err.to_string()),
+        }
+    }
+
+    fn stepped_volume_delta(current: f64, requested: f64) -> f64 {
+        let rounded = current.round();
+        let current = if (current - rounded).abs() <= 0.001 {
+            rounded
+        } else {
+            current
+        };
+        let step: f64 = if (requested.is_sign_negative() && current <= 5.0)
+            || (requested.is_sign_positive() && current < 5.0)
+        {
+            1.0
+        } else {
+            5.0
+        };
+        if requested.is_sign_negative() {
+            -step.min(current)
+        } else {
+            step.min(100.0 - current)
         }
     }
 

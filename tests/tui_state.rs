@@ -188,6 +188,43 @@ async fn mixer_tracks_route_selection_and_changes_volume_and_mute() {
 }
 
 #[tokio::test]
+async fn mixer_uses_one_percent_steps_at_five_percent_and_below() {
+    let (mut tui, backend) = started().await;
+    backend
+        .volumes
+        .lock()
+        .unwrap()
+        .iter_mut()
+        .find(|state| state.channel == MixerChannel::Media)
+        .unwrap()
+        .volume = 0.05;
+    tui.refresh().await;
+    for _ in 0..3 {
+        tui.handle_key(key(KeyCode::Char('j'))).await;
+    }
+    assert_eq!(tui.mixer_channel, MixerChannel::Media);
+
+    for key_code in [
+        KeyCode::Char('h'),
+        KeyCode::Char('h'),
+        KeyCode::Char('l'),
+        KeyCode::Char('l'),
+        KeyCode::Char('l'),
+    ] {
+        tui.handle_key(key(key_code)).await;
+    }
+
+    let percentages: Vec<_> = backend
+        .volume_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, volume)| (volume * 100.0).round() as u8)
+        .collect();
+    assert_eq!(percentages, [4, 3, 4, 5, 10]);
+}
+
+#[tokio::test]
 async fn quits_on_q_and_ctrl_c() {
     let (mut tui, _) = started().await;
     tui.handle_key(key(KeyCode::Char('q'))).await;

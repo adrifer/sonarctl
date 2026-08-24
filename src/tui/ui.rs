@@ -22,13 +22,13 @@ Output routing
   k / Up       previous route
   g / G        first / last route
   Enter        choose device
-  h / l, [ / ] decrease / increase selected channel volume
+  h / l, [ / ] decrease / increase volume (1% at 5% or below)
   m            toggle selected channel mute
   r            refresh
 
 Input routing
   Enter        choose device
-  h / l, [ / ] decrease / increase microphone volume
+  h / l, [ / ] decrease / increase volume (1% at 5% or below)
   m            toggle microphone mute
   r            refresh
 

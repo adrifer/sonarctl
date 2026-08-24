@@ -66,7 +66,7 @@ pub fn fixture_applications() -> Vec<ApplicationSession> {
 pub struct MockBackend {
     devices: Vec<AudioDevice>,
     routes: Mutex<Vec<Route>>,
-    volumes: Mutex<Vec<VolumeState>>,
+    pub volumes: Mutex<Vec<VolumeState>>,
     pub applications: Mutex<Vec<ApplicationSession>>,
     pub calls: Mutex<Vec<(Channel, String)>>,
     pub volume_calls: Mutex<Vec<(MixerChannel, f64)>>,
