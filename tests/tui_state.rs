@@ -32,7 +32,7 @@ async fn shows_current_routes_after_refresh() {
 #[tokio::test]
 async fn navigates_channels_with_arrows_and_vim_keys() {
     let (mut tui, _) = started().await;
-    assert_eq!(tui.selected_target(), RouteTarget::AllOutputs);
+    assert_eq!(tui.selected_target(), Some(RouteTarget::AllOutputs));
 
     tui.handle_key(key(KeyCode::Char('j'))).await;
     assert_eq!(tui.selected_channel(), Some(Channel::Game));
@@ -44,16 +44,35 @@ async fn navigates_channels_with_arrows_and_vim_keys() {
     assert_eq!(tui.selected_channel(), Some(Channel::Game));
 
     tui.handle_key(key(KeyCode::Char('G'))).await;
-    assert_eq!(tui.selected_channel(), Some(Channel::Microphone));
+    assert_eq!(tui.selected_channel(), Some(Channel::Aux));
 
     tui.handle_key(key(KeyCode::Char('j'))).await;
     assert_eq!(tui.selected_channel(), None, "wraps to all outputs");
 
     tui.handle_key(key(KeyCode::Char('k'))).await;
-    assert_eq!(tui.selected_channel(), Some(Channel::Microphone));
+    assert_eq!(tui.selected_channel(), Some(Channel::Aux));
 
     tui.handle_key(key(KeyCode::Char('g'))).await;
     assert_eq!(tui.selected_channel(), None);
+}
+
+#[tokio::test]
+async fn focuses_numbered_panes_directly_and_with_tab() {
+    let (mut tui, _) = started().await;
+    assert_eq!(tui.focus, FocusPane::Output);
+
+    tui.handle_key(key(KeyCode::Char('2'))).await;
+    assert_eq!(tui.focus, FocusPane::Input);
+    assert_eq!(tui.selected_channel(), Some(Channel::Microphone));
+
+    tui.handle_key(key(KeyCode::Char('3'))).await;
+    assert_eq!(tui.focus, FocusPane::Devices);
+    assert_eq!(tui.selected_target(), None);
+
+    tui.handle_key(key(KeyCode::Tab)).await;
+    assert_eq!(tui.focus, FocusPane::Output);
+    tui.handle_key(key(KeyCode::BackTab)).await;
+    assert_eq!(tui.focus, FocusPane::Devices);
 }
 
 #[tokio::test]
@@ -104,7 +123,7 @@ async fn picker_only_offers_compatible_devices() {
     assert_eq!(tui.mode, Mode::Channels);
     assert!(tui.picker.is_none());
 
-    tui.handle_key(key(KeyCode::Char('G'))).await;
+    tui.handle_key(key(KeyCode::Char('2'))).await;
     tui.handle_key(key(KeyCode::Enter)).await;
     let picker = tui.picker.as_ref().expect("picker");
     assert_eq!(picker.target, RouteTarget::Channel(Channel::Microphone));
@@ -229,17 +248,17 @@ async fn all_output_failure_rolls_back_previous_channels() {
 }
 
 #[tokio::test]
-async fn devices_tab_toggles_picker_visibility() {
+async fn devices_pane_toggles_picker_visibility() {
     let (mut tui, _) = started().await;
-    tui.handle_key(key(KeyCode::Tab)).await;
+    tui.handle_key(key(KeyCode::Char('3'))).await;
     assert_eq!(tui.focus, FocusPane::Devices);
 
     let hidden_id = tui.devices()[0].id.clone();
     tui.handle_key(key(KeyCode::Char(' '))).await;
     assert!(!tui.device_is_visible(&hidden_id));
 
-    tui.handle_key(key(KeyCode::Tab)).await;
-    assert_eq!(tui.focus, FocusPane::Routing);
+    tui.handle_key(key(KeyCode::Char('1'))).await;
+    assert_eq!(tui.focus, FocusPane::Output);
     tui.handle_key(key(KeyCode::Enter)).await;
     assert!(
         tui.picker

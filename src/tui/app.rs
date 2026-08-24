@@ -15,7 +15,8 @@ pub const OUTPUT_CHANNELS: [Channel; 4] =
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusPane {
-    Routing,
+    Output,
+    Input,
     Devices,
 }
 
@@ -26,14 +27,15 @@ pub enum RouteTarget {
 }
 
 impl RouteTarget {
-    pub const ALL: [RouteTarget; 6] = [
+    pub const OUTPUT: [RouteTarget; 5] = [
         RouteTarget::AllOutputs,
         RouteTarget::Channel(Channel::Game),
         RouteTarget::Channel(Channel::Chat),
         RouteTarget::Channel(Channel::Media),
         RouteTarget::Channel(Channel::Aux),
-        RouteTarget::Channel(Channel::Microphone),
     ];
+
+    pub const INPUT: RouteTarget = RouteTarget::Channel(Channel::Microphone);
 
     pub fn label(self) -> &'static str {
         match self {
@@ -177,7 +179,7 @@ pub struct TuiApp {
     pub mode: Mode,
     help_return_mode: Mode,
     pub focus: FocusPane,
-    pub selected: usize,
+    pub output_selected: usize,
     pub device_selected: usize,
     pub snapshot: Option<Snapshot>,
     pub picker: Option<Picker>,
@@ -197,8 +199,8 @@ impl TuiApp {
             app,
             mode: Mode::Channels,
             help_return_mode: Mode::Channels,
-            focus: FocusPane::Routing,
-            selected: 0,
+            focus: FocusPane::Output,
+            output_selected: 0,
             device_selected: 0,
             snapshot: None,
             picker: None,
@@ -209,12 +211,18 @@ impl TuiApp {
         }
     }
 
-    pub fn selected_target(&self) -> RouteTarget {
-        RouteTarget::ALL[self.selected.min(RouteTarget::ALL.len() - 1)]
+    pub fn selected_target(&self) -> Option<RouteTarget> {
+        match self.focus {
+            FocusPane::Output => {
+                Some(RouteTarget::OUTPUT[self.output_selected.min(RouteTarget::OUTPUT.len() - 1)])
+            }
+            FocusPane::Input => Some(RouteTarget::INPUT),
+            FocusPane::Devices => None,
+        }
     }
 
     pub fn selected_channel(&self) -> Option<Channel> {
-        match self.selected_target() {
+        match self.selected_target()? {
             RouteTarget::AllOutputs => None,
             RouteTarget::Channel(channel) => Some(channel),
         }
@@ -302,32 +310,72 @@ impl TuiApp {
     }
 
     async fn handle_main_key(&mut self, key: KeyEvent) {
-        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
-            self.focus = match self.focus {
-                FocusPane::Routing => FocusPane::Devices,
-                FocusPane::Devices => FocusPane::Routing,
-            };
-            return;
+        match key.code {
+            KeyCode::Char('1') => {
+                self.focus = FocusPane::Output;
+                return;
+            }
+            KeyCode::Char('2') => {
+                self.focus = FocusPane::Input;
+                return;
+            }
+            KeyCode::Char('3') => {
+                self.focus = FocusPane::Devices;
+                return;
+            }
+            KeyCode::Tab => {
+                self.focus = match self.focus {
+                    FocusPane::Output => FocusPane::Input,
+                    FocusPane::Input => FocusPane::Devices,
+                    FocusPane::Devices => FocusPane::Output,
+                };
+                return;
+            }
+            KeyCode::BackTab => {
+                self.focus = match self.focus {
+                    FocusPane::Output => FocusPane::Devices,
+                    FocusPane::Input => FocusPane::Output,
+                    FocusPane::Devices => FocusPane::Input,
+                };
+                return;
+            }
+            _ => {}
         }
 
         match self.focus {
-            FocusPane::Routing => self.handle_routing_key(key).await,
+            FocusPane::Output => self.handle_output_key(key).await,
+            FocusPane::Input => self.handle_input_key(key).await,
             FocusPane::Devices => self.handle_devices_key(key).await,
         }
     }
 
-    async fn handle_routing_key(&mut self, key: KeyEvent) {
+    async fn handle_output_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('j') | KeyCode::Down => {
-                self.selected = (self.selected + 1) % RouteTarget::ALL.len();
+                self.output_selected = (self.output_selected + 1) % RouteTarget::OUTPUT.len();
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.selected =
-                    (self.selected + RouteTarget::ALL.len() - 1) % RouteTarget::ALL.len();
+                self.output_selected = (self.output_selected + RouteTarget::OUTPUT.len() - 1)
+                    % RouteTarget::OUTPUT.len();
             }
-            KeyCode::Char('g') | KeyCode::Home => self.selected = 0,
-            KeyCode::Char('G') | KeyCode::End => self.selected = RouteTarget::ALL.len() - 1,
+            KeyCode::Char('g') | KeyCode::Home => self.output_selected = 0,
+            KeyCode::Char('G') | KeyCode::End => {
+                self.output_selected = RouteTarget::OUTPUT.len() - 1;
+            }
+            KeyCode::Char('r') => {
+                self.status = StatusLine::info("Refreshing…");
+                self.refresh().await;
+            }
+            KeyCode::Char('?') => self.open_help(Mode::Channels),
+            KeyCode::Enter => self.open_picker().await,
+            _ => {}
+        }
+    }
+
+    async fn handle_input_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('r') => {
                 self.status = StatusLine::info("Refreshing…");
                 self.refresh().await;
@@ -374,7 +422,9 @@ impl TuiApp {
     }
 
     async fn open_picker(&mut self) {
-        let target = self.selected_target();
+        let Some(target) = self.selected_target() else {
+            return;
+        };
         if self.snapshot.is_none() {
             self.refresh().await;
         }

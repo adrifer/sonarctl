@@ -144,37 +144,36 @@ otherwise, so aliases survive most hardware re-enumerations.
 ## TUI
 
 ```text
-┌ Routing ───────────────────────┐┌ Picker visibility ─────────────┐
-│ Output                         ││ > [x] Playback  Headphones      │
-│ > All Outputs  Mixed           ││   [x] Playback  Speakers       │
-│   Game         Headphones      ││   [ ] Playback  HDMI Display   │
-│   Chat         Headphones      ││   [x] Capture   Shure MV7      │
-│   Media        Speakers        ││                                 │
+┌ [1] Output routing ────────────┐┌ [3] Devices ───────────────────┐
+│ > All Outputs  Mixed           ││ > [x] Playback  Headphones      │
+│   Game         Headphones      ││   [x] Playback  Speakers       │
+│   Chat         Headphones      ││   [ ] Playback  HDMI Display   │
+│   Media        Speakers        ││   [x] Capture   Shure MV7      │
 │   Aux          Speakers        ││                                 │
-│ Input                          ││                                 │
+├ [2] Input routing ─────────────┤│                                 │
 │   Microphone   Shure MV7       ││                                 │
 └────────────────────────────────┘└─────────────────────────────────┘
+ [1] Output  [2] Input  [3] Devices  │  ↑↓ select  Enter change  │  ? help  q quit
 ```
 
 `All Outputs` changes Game, Chat, Media, and Aux in one action. Microphone stays separate in the
-Input section, directly below the outputs. The Devices subpanel remains visible alongside routing;
-`Tab` changes keyboard focus without switching screens.
+numbered Input pane. Press `1`, `2`, or `3` to focus a pane directly; `Tab` cycles focus. This pane
+model leaves room for future channel details and controls without changing the navigation system.
 
-| Key | Routing | Devices | Device picker |
+| Key | Output/Input panes | Devices pane | Device picker |
 | --- | --- | --- | --- |
-| `Tab` | focus Devices | focus Routing | — |
-| `j` / `↓` | next route | next device | next device |
-| `k` / `↑` | previous route | previous device | previous device |
+| `1` / `2` / `3` | focus numbered pane | focus numbered pane | — |
+| `Tab` / `Shift+Tab` | cycle pane focus | cycle pane focus | — |
+| `j` / `↓`, `k` / `↑` | select route | select device | select device |
 | `g` / `G` | first / last route | first / last device | first / last device |
 | `Enter` | open picker | toggle picker visibility | apply |
 | `Space` | — | toggle picker visibility | — |
 | `/` | — | — | filter |
-| `Esc` | quit | quit | cancel |
+| `Esc` / `q` | quit | quit | cancel |
 | `r` | refresh | refresh | — |
 | `?` | help | help | help |
-| `q` | quit | quit | cancel |
 
-The Devices subpanel controls which physical devices appear in route pickers. Toggled visibility is
+The Devices pane controls which physical devices appear in route pickers. Toggled visibility is
 stored by stable device ID in `%APPDATA%\sonarctl\device-visibility.toml`; it does not disable
 hardware in Windows.
 

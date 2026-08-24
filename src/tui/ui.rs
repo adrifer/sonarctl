@@ -1,7 +1,7 @@
 //! TUI rendering. No Sonar access happens here.
 
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
@@ -10,14 +10,20 @@ use crate::tui::app::{FocusPane, Mode, RouteTarget, TuiApp};
 
 const HELP_TEXT: &str = "\
 Global
-  Tab          focus Routing / Devices
+  1 / 2 / 3    focus Output / Input / Devices
+  Tab          focus next pane
+  Shift+Tab    focus previous pane
   q            quit
   ?            toggle this help
 
-Routing
+Output routing
   j / Down     next route
   k / Up       previous route
   g / G        first / last route
+  Enter        choose device
+  r            refresh
+
+Input routing
   Enter        choose device
   r            refresh
 
@@ -38,9 +44,11 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
     let areas = Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(frame.area());
     let panels = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(areas[0]);
-    draw_routing(frame, app, panels[0]);
+    let routing = Layout::vertical([Constraint::Length(7), Constraint::Min(3)]).split(panels[0]);
+    draw_output_routing(frame, app, routing[0]);
+    draw_input_routing(frame, app, routing[1]);
     draw_devices(frame, app, panels[1]);
-    draw_status(frame, app, areas[1]);
+    draw_footer(frame, app, areas[1]);
 
     match app.mode {
         Mode::Picker => draw_picker(frame, app, frame.area()),
@@ -49,78 +57,79 @@ pub fn draw(frame: &mut Frame, app: &TuiApp) {
     }
 }
 
-fn draw_routing(frame: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_output_routing(frame: &mut Frame, app: &TuiApp, area: Rect) {
     let width = area.width.saturating_sub(4) as usize;
-    let label_width = RouteTarget::ALL
+    let label_width = RouteTarget::OUTPUT
         .iter()
         .map(|target| target.label().len())
         .max()
         .unwrap_or(10)
         + 2;
 
-    let mut items = vec![ListItem::new(Line::styled(
-        "Output",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    ))];
-    items.extend(RouteTarget::ALL[..5].iter().map(|target| {
-        let device = match target {
-            RouteTarget::AllOutputs => app.all_outputs_device(),
-            RouteTarget::Channel(channel) => app.device_for(*channel),
-        };
-        let name = format!("{:<label_width$}", target.label());
-        let line = Line::from(vec![
-            Span::styled(name, Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(truncate(&device, width.saturating_sub(label_width))),
-        ]);
-        ListItem::new(line)
-    }));
-    items.push(ListItem::new(Line::styled(
-        "Input",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )));
-    let microphone = RouteTarget::ALL[5];
-    items.push(ListItem::new(Line::from(vec![
-        Span::styled(
-            format!("{:<label_width$}", microphone.label()),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(truncate(
-            &app.device_for(crate::sonar::models::Channel::Microphone),
-            width.saturating_sub(label_width),
-        )),
-    ])));
+    let items: Vec<ListItem> = RouteTarget::OUTPUT
+        .iter()
+        .map(|target| {
+            let device = match target {
+                RouteTarget::AllOutputs => app.all_outputs_device(),
+                RouteTarget::Channel(channel) => app.device_for(*channel),
+            };
+            let name = format!("{:<label_width$}", target.label());
+            let line = Line::from(vec![
+                Span::styled(name, Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(truncate(&device, width.saturating_sub(label_width))),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
 
     let mut state = ListState::default();
-    if app.focus == FocusPane::Routing {
-        state.select(Some(if app.selected < 5 {
-            app.selected + 1
-        } else {
-            7
-        }));
+    if app.focus == FocusPane::Output {
+        state.select(Some(app.output_selected));
     }
 
     let list = List::new(items)
         .block(
             Block::bordered()
-                .title(" Routing ")
-                .title_bottom(Line::from(
-                    " Tab focus   ↑↓ select   Enter change   ? help   q quit ",
-                ))
-                .border_style(if app.focus == FocusPane::Routing {
+                .title(" [1] Output routing ")
+                .border_style(if app.focus == FocusPane::Output {
                     Style::default().fg(Color::Cyan)
                 } else {
                     Style::default()
-                })
-                .title_alignment(Alignment::Left),
+                }),
         )
         .highlight_symbol("> ")
         .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
 
     frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn draw_input_routing(frame: &mut Frame, app: &TuiApp, area: Rect) {
+    let target = RouteTarget::INPUT;
+    let item = ListItem::new(Line::from(vec![
+        Span::styled(
+            format!("{:<14}", target.label()),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(app.device_for(crate::sonar::models::Channel::Microphone)),
+    ]));
+    let mut state = ListState::default();
+    if app.focus == FocusPane::Input {
+        state.select(Some(0));
+    }
+    frame.render_stateful_widget(
+        List::new([item])
+            .block(Block::bordered().title(" [2] Input routing ").border_style(
+                if app.focus == FocusPane::Input {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ))
+            .highlight_symbol("> ")
+            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan)),
+        area,
+        &mut state,
+    );
 }
 
 fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
@@ -148,16 +157,13 @@ fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
     }
     frame.render_stateful_widget(
         List::new(items)
-            .block(
-                Block::bordered()
-                    .title(" Picker visibility ")
-                    .title_bottom(Line::from(" Tab focus   Space/Enter toggle   r refresh "))
-                    .border_style(if app.focus == FocusPane::Devices {
-                        Style::default().fg(Color::Cyan)
-                    } else {
-                        Style::default()
-                    }),
-            )
+            .block(Block::bordered().title(" [3] Devices ").border_style(
+                if app.focus == FocusPane::Devices {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                },
+            ))
             .highlight_symbol("> ")
             .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan)),
         area,
@@ -165,14 +171,19 @@ fn draw_devices(frame: &mut Frame, app: &TuiApp, area: Rect) {
     );
 }
 
-fn draw_status(frame: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_footer(frame: &mut Frame, app: &TuiApp, area: Rect) {
     let style = if app.status.is_error {
         Style::default().fg(Color::Red)
     } else {
         Style::default().fg(Color::DarkGray)
     };
     let text = if app.status.text.is_empty() {
-        String::new()
+        let action = match app.focus {
+            FocusPane::Output => "↑↓ select  Enter change",
+            FocusPane::Input => "Enter change",
+            FocusPane::Devices => "↑↓ select  Space/Enter toggle",
+        };
+        format!(" [1] Output  [2] Input  [3] Devices  │  {action}  │  ? help  q quit")
     } else {
         format!(" {}", app.status.text)
     };
