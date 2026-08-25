@@ -1,5 +1,7 @@
 # sonarctl
 
+<img width="1250" height="713" alt="image" src="https://github.com/user-attachments/assets/1d6445c6-bd00-4d26-a011-4df0081e0017" />
+
 A small CLI and TUI for controlling **SteelSeries Sonar** device routing, application routing,
 volume, and mute state from a terminal.
 
